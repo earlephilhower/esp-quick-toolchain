@@ -1,0 +1,73 @@
+From f94551ee61c540ecce68f217d6c320a99ea5f9c7 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Mon, 3 May 2021 20:40:08 +0900
+Subject: [PATCH 04/13] GCC: xtensa: simplify EXTUI instruction maskimm
+ validations
+
+---
+ gcc/config/xtensa/predicates.md |  2 +-
+ gcc/config/xtensa/xtensa.c      | 25 ++++---------------------
+ 2 files changed, 5 insertions(+), 22 deletions(-)
+
+diff --git a/gcc/config/xtensa/predicates.md b/gcc/config/xtensa/predicates.md
+index eb52b05aa..f72fc382c 100644
+--- a/gcc/config/xtensa/predicates.md
++++ b/gcc/config/xtensa/predicates.md
+@@ -55,7 +55,7 @@
+ 
+ (define_predicate "extui_fldsz_operand"
+   (and (match_code "const_int")
+-       (match_test "xtensa_mask_immediate ((1 << INTVAL (op)) - 1)")))
++       (match_test "INTVAL (op) >= 1 && INTVAL (op) <= 16")))
+ 
+ (define_predicate "sext_operand"
+   (if_then_else (match_test "TARGET_SEXT")
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index e56083e29..c161e6e06 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -446,19 +446,8 @@ xtensa_b4constu (HOST_WIDE_INT v)
+ bool
+ xtensa_mask_immediate (HOST_WIDE_INT v)
+ {
+-#define MAX_MASK_SIZE 16
+-  int mask_size;
+-
+-  for (mask_size = 1; mask_size <= MAX_MASK_SIZE; mask_size++)
+-    {
+-      if ((v & 1) == 0)
+-	return false;
+-      v = v >> 1;
+-      if (v == 0)
+-	return true;
+-    }
+-
+-  return false;
++  int mask_size = exact_log2 (v + 1);
++  return mask_size >= 1 && mask_size <= 16;
+ }
+ 
+ 
+@@ -2423,17 +2412,11 @@ print_operand (FILE *file, rtx x, int letter)
+     case 'K':
+       if (GET_CODE (x) == CONST_INT)
+ 	{
+-	  int num_bits = 0;
+ 	  unsigned val = INTVAL (x);
+-	  while (val & 1)
+-	    {
+-	      num_bits += 1;
+-	      val = val >> 1;
+-	    }
+-	  if ((val != 0) || (num_bits == 0) || (num_bits > 16))
++	  if (!xtensa_mask_immediate (val))
+ 	    fatal_insn ("invalid mask", x);
+ 
+-	  fprintf (file, "%d", num_bits);
++	  fprintf (file, "%d", floor_log2 (val + 1));
+ 	}
+       else
+ 	output_operand_lossage ("invalid %%K value");
+-- 
+2.20.1
+
