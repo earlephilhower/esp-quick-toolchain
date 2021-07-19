@@ -1,0 +1,180 @@
+From 32cda009813acec5c7d88c35c7ec63819a2e9bc4 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Fri, 21 May 2021 20:40:05 +0900
+Subject: [PATCH 06/13] GCC: xtensa (xtensa_expand_block_set): add setmemsi
+ insn pattern
+
+- currently, works only for fixed length and initialization value of constant zero or 255
+- moderate expansion threshold for now, almost no increase in size even if optimizing for speed
+---
+ gcc/config/xtensa/xtensa-protos.h |   1 +
+ gcc/config/xtensa/xtensa.c        | 101 ++++++++++++++++++++++++++++++
+ gcc/config/xtensa/xtensa.md       |  14 +++++
+ gcc/config/xtensa/xtensa.opt      |   2 +-
+ 4 files changed, 117 insertions(+), 1 deletion(-)
+
+diff --git a/gcc/config/xtensa/xtensa-protos.h b/gcc/config/xtensa/xtensa-protos.h
+index 18d803581..ecf6789cc 100644
+--- a/gcc/config/xtensa/xtensa-protos.h
++++ b/gcc/config/xtensa/xtensa-protos.h
+@@ -41,6 +41,7 @@ extern void xtensa_expand_conditional_branch (rtx *, machine_mode);
+ extern int xtensa_expand_conditional_move (rtx *, int);
+ extern int xtensa_expand_scc (rtx *, machine_mode);
+ extern int xtensa_expand_block_move (rtx *);
++extern int xtensa_expand_block_set (rtx *);
+ extern void xtensa_split_operand_pair (rtx *, machine_mode);
+ extern int xtensa_emit_move_sequence (rtx *, machine_mode);
+ extern rtx xtensa_copy_incoming_a7 (rtx);
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index d4edd167d..15e28f3a9 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -1363,6 +1363,107 @@ xtensa_expand_block_move (rtx *operands)
+ }
+ 
+ 
++/* Try to expand a block set operation to a sequence of RTL move
++   instructions.  If not optimizing, or if the block size is not a
++   constant, or if the block is too large, or if the value to
++   initialize the block with is not a constant of neither zero nor 255,
++   the expansion fails and GCC falls back to calling memset().
++
++   operands[0] is the destination
++   operands[1] is the length
++   operands[2] is the initialization value
++   operands[3] is the alignment */
++
++int
++xtensa_expand_block_set (rtx *operands)
++{
++  rtx dst_mem = operands[0];
++  HOST_WIDE_INT bytes, value, align;
++  int insns_len, insns_len_threshold;
++  rtx x, reg;
++  int insns;
++  int offset;
++
++  /* If this is not a fixed size set, just call memset.  */
++  if (!optimize
++      || (GET_CODE (operands[1]) != CONST_INT))
++    return 0;
++
++  /* If this has no positive length, or if the init value is other
++     than 0 or 255, fall back.  */
++  bytes = INTVAL (operands[1]);
++  value = INTVAL (operands[2]) & 255;
++  if (bytes <= 0
++      || (value != 0 && value != 255))
++    return 0;
++  value = (int8_t)value;
++  align = INTVAL (operands[3]);
++  gcc_assert (MOVE_MAX == GET_MODE_SIZE (SImode));
++  if (align > MOVE_MAX)
++    align = MOVE_MAX;
++
++  /* Decide whether to expand or not, based on the sum of the length
++     of instructions.  */
++  insns_len = (TARGET_DENSITY ? 2 : 3)
++		/* a MOVI(.N) for holding the init value.  */
++	      + (bytes / align) * (TARGET_DENSITY && align == GET_MODE_SIZE (SImode) ? 2 : 3)
++		/* a series of S32I(.N)s for SImode memory store.  */
++	      + ((bytes % align + 1) / 2) * 3;
++		/* some of S16I/S8Is for HI/QImode memory store.  */
++  insns_len_threshold = (!TARGET_WINDOWED_ABI && optimize > 1 && ! optimize_size
++			 ? 2 + 2
++			 : 2) * (TARGET_DENSITY ? 2 : 3)
++		/* two MOVI(.N)s for the 2nd and 3rd args of memset(),
++		   and a pair of S32I/L32I(.N) for save/restoring of A0
++		   (link register) if optimizing for speed and the
++		   Windowed Register Option is not configured.  */
++			+ (TARGET_LONGCALLS ? 4 + 3 + 3 : 3);
++		/* call subroutine (CALLn / litpool + L32R + CALLXn).  */
++  if (insns_len > insns_len_threshold)
++    {
++      fprintf (stderr, "[xtensa_expand_block_set @ %s(), line %d] insns_len=%d, threshold=%d; not expanded\n",
++	       current_function_name (), LOCATION_LINE (curr_insn_location ()),
++	       insns_len, insns_len_threshold);
++
++      return 0;
++    }
++
++  x = XEXP (dst_mem, 0);
++  if (!REG_P (x))
++    dst_mem = replace_equiv_address (dst_mem, force_reg (Pmode, x));
++
++  reg = gen_reg_rtx (SImode);
++  emit_insn (gen_rtx_SET (reg, GEN_INT (value)));
++  insns = 1;
++  offset = 0;
++  do
++    {
++      int unit_size = MIN (bytes, align);
++      machine_mode unit_mode = (unit_size >= GET_MODE_SIZE (SImode) ? SImode :
++			       (unit_size >= GET_MODE_SIZE (HImode) ? HImode :
++								      QImode));
++      unit_size = GET_MODE_SIZE (unit_mode);
++
++      x = reg;
++      if (unit_mode != SImode)
++	x = gen_rtx_SUBREG (unit_mode, x, 0);
++      emit_insn (gen_rtx_SET (adjust_address (dst_mem, unit_mode, offset),
++			      x));
++
++      insns += 1;
++      offset += unit_size;
++      bytes -= unit_size;
++    }
++  while (bytes > 0);
++
++  fprintf (stderr, "[xtensa_expand_block_set @ %s(), line %d] insns_len=%d, threshold=%d; expanded to %d insns\n",
++	   current_function_name (), LOCATION_LINE (curr_insn_location ()),
++	   insns_len, insns_len_threshold, insns);
++
++  return 1;
++}
++
++
+ void
+ xtensa_expand_nonlocal_goto (rtx *operands)
+ {
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index b46b98eaa..1ff827ce9 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -1085,6 +1085,20 @@
+   DONE;
+ })
+ 
++;; Block sets
++
++(define_expand "setmemsi"
++  [(match_operand:BLK 0 "memory_operand" "")
++   (match_operand:SI 1 "nonmemory_operand" "")
++   (match_operand:SI 2 "const_int_operand" "")
++   (match_operand:SI 3 "const_int_operand" "")]
++  ""
++{
++  if (!xtensa_expand_block_set (operands))
++    FAIL;
++  DONE;
++})
++
+ 
+ ;; Shift instructions.
+ 
+diff --git a/gcc/config/xtensa/xtensa.opt b/gcc/config/xtensa/xtensa.opt
+index aef67970b..e1d992f5d 100644
+--- a/gcc/config/xtensa/xtensa.opt
++++ b/gcc/config/xtensa/xtensa.opt
+@@ -27,7 +27,7 @@ Target Report Mask(FORCE_NO_PIC)
+ Disable position-independent code (PIC) for use in OS kernel code.
+ 
+ mlongcalls
+-Target
++Target Mask(LONGCALLS)
+ Use indirect CALLXn instructions for large programs.
+ 
+ mtarget-align
+-- 
+2.20.1
+
