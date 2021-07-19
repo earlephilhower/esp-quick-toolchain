@@ -1,0 +1,52 @@
+From 70458df62af9080da444038d4b5380b2ade6febf Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Mon, 31 May 2021 19:43:28 +0900
+Subject: [PATCH 13/13] GCC: xtensa: add *xtensa_and_not insn pattern
+
+Operation:
+  AR[x] <- AR[y] and not AR[z]
+
+Preferred Idiom:
+  and   at, ay, az
+  xor   ax, ay, at
+
+without this, like as follows:
+  movi  at, -1
+  xor   at, az, at
+  and   ax, ay, at
+
+(Literature:  Xtensa(R) Instruction Set Reference Manual, 8.3.2 Instruction Idioms)
+---
+ gcc/config/xtensa/xtensa.md | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index 709460d5c..895f811f9 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -600,6 +600,22 @@
+    (set_attr "mode"	"SI")
+    (set_attr "length"	"6")])
+ 
++(define_insn "*xtensa_and_not"
++  [(set (match_operand:SI 0 "register_operand" "=a")
++	(and:SI (not:SI (match_operand:SI 1 "register_operand" "r"))
++		(match_operand:SI 2 "register_operand" "r")))
++   (clobber (match_scratch:SI 3 "=&a"))]
++  ""
++{
++  fprintf (stderr, "[*xtensa_and_not @ %s()] 'x & ~y' => '(x & y) ^ x'\n",
++	   current_function_name ());
++
++  return "and\t%3, %2, %1\;xor\t%0, %2, %3";
++}
++  [(set_attr "type"	"arith")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"6")])
++
+ (define_insn "iorsi3"
+   [(set (match_operand:SI 0 "register_operand" "=a")
+ 	(ior:SI (match_operand:SI 1 "register_operand" "%r")
+-- 
+2.20.1
+
