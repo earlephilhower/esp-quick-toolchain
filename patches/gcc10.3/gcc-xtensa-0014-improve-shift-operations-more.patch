@@ -1,0 +1,316 @@
+From 568b0e345448ab86104898d3a0c4c6aa539d9153 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Sun, 2 May 2021 09:10:44 +0900
+Subject: [PATCH 10/13] GCC: xtensa: improve shift operations more
+
+- rearrange ashlsi3_internal, xtensa_shift_3x and xtensa_shift_3x_1
+- add *xtensa_sh[lr]d patterns (aka. funnel shifts), that mimic ones in i386 ISA
+---
+ gcc/config/xtensa/constraints.md  |   7 ++
+ gcc/config/xtensa/predicates.md   |   6 +
+ gcc/config/xtensa/xtensa-protos.h |   1 +
+ gcc/config/xtensa/xtensa.c        |  13 ++
+ gcc/config/xtensa/xtensa.md       | 191 +++++++++++++++++++++++-------
+ 5 files changed, 176 insertions(+), 42 deletions(-)
+
+diff --git a/gcc/config/xtensa/constraints.md b/gcc/config/xtensa/constraints.md
+index 2062c8816..7696e881f 100644
+--- a/gcc/config/xtensa/constraints.md
++++ b/gcc/config/xtensa/constraints.md
+@@ -111,6 +111,13 @@
+  (and (match_code "const_int")
+       (match_test "xtensa_mask_immediate (ival)")))
+ 
++(define_constraint "Q"
++ "An integer constant 1 but only if the Xtensa Code Density Option is
++  configured."
++ (and (and (match_code "const_int")
++	   (match_test "ival == 1"))
++      (match_test "TARGET_DENSITY")))
++
+ (define_constraint "Y"
+  "A constant that can be used in relaxed MOVI instructions."
+  (and (match_code "const_int,const_double,const,symbol_ref,label_ref")
+diff --git a/gcc/config/xtensa/predicates.md b/gcc/config/xtensa/predicates.md
+index f72fc382c..36346018b 100644
+--- a/gcc/config/xtensa/predicates.md
++++ b/gcc/config/xtensa/predicates.md
+@@ -165,9 +165,15 @@
+ (define_predicate "boolean_operator"
+   (match_code "eq,ne"))
+ 
++(define_predicate "logical_shift_operator"
++  (match_code "ashift,lshiftrt"))
++
+ (define_predicate "xtensa_cstoresi_operator"
+   (match_code "eq,ne,gt,ge,lt,le"))
+ 
++(define_predicate "xtensa_shift_3x_operator"
++  (match_code "ashift,ashiftrt,lshiftrt"))
++
+ (define_predicate "tls_symbol_operand"
+   (and (match_code "symbol_ref")
+        (match_test "SYMBOL_REF_TLS_MODEL (op) != 0")))
+diff --git a/gcc/config/xtensa/xtensa-protos.h b/gcc/config/xtensa/xtensa-protos.h
+index ecf6789cc..7f7a93e99 100644
+--- a/gcc/config/xtensa/xtensa-protos.h
++++ b/gcc/config/xtensa/xtensa-protos.h
+@@ -54,6 +54,7 @@ extern char *xtensa_emit_bit_branch (bool, bool, rtx *);
+ extern char *xtensa_emit_movcc (bool, bool, bool, rtx *);
+ extern char *xtensa_emit_call (int, rtx *);
+ extern bool xtensa_tls_referenced_p (rtx);
++extern enum rtx_code xtensa_shlrd_helper (rtx *);
+ 
+ #ifdef TREE_CODE
+ extern void init_cumulative_args (CUMULATIVE_ARGS *, int);
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index 11794e010..2733ffed2 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -2245,6 +2245,19 @@ xtensa_tls_referenced_p (rtx x)
+ }
+ 
+ 
++/* Helper function for "*xtensa_shlrd" pattern.  */
++enum rtx_code
++xtensa_shlrd_helper (rtx *operands)
++{
++  if (GET_CODE (operands[4]) == ASHIFT && GET_CODE (operands[5]) == LSHIFTRT)
++    return ASHIFT;	/* shld  */
++  if (GET_CODE (operands[4]) == LSHIFTRT && GET_CODE (operands[5]) == ASHIFT)
++    return LSHIFTRT;	/* shrd  */
++
++  return UNKNOWN;
++}
++
++
+ /* Implement TARGET_CANNOT_FORCE_CONST_MEM.  */
+ 
+ static bool
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index 05ee7afcb..582a5c2ad 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -1121,38 +1121,18 @@
+   operands[1] = xtensa_copy_incoming_a7 (operands[1]);
+ })
+ 
+-(define_insn "*ashlsi3_1"
+-  [(set (match_operand:SI 0 "register_operand" "=a")
+-	(ashift:SI (match_operand:SI 1 "register_operand" "r")
+-		   (const_int 1)))]
+-  "TARGET_DENSITY"
+-  "add.n\t%0, %1, %1"
+-  [(set_attr "type"	"arith")
+-   (set_attr "mode"	"SI")
+-   (set_attr "length"	"2")])
+-
+ (define_insn "ashlsi3_internal"
+-  [(set (match_operand:SI 0 "register_operand" "=a,a")
+-	(ashift:SI (match_operand:SI 1 "register_operand" "r,r")
+-		   (match_operand:SI 2 "arith_operand" "J,r")))]
++  [(set (match_operand:SI 0 "register_operand" "=a,a,a")
++	(ashift:SI (match_operand:SI 1 "register_operand" "r,r,r")
++		   (match_operand:SI 2 "arith_operand" "Q,J,r")))]
+   ""      
+   "@
++   add.n\t%0, %1, %1
+    slli\t%0, %1, %R2
+    ssl\t%2\;sll\t%0, %1"
+-  [(set_attr "type"	"arith,arith")
++  [(set_attr "type"	"arith,arith,arith")
+    (set_attr "mode"	"SI")
+-   (set_attr "length"	"3,6")])
+-
+-(define_insn "*ashlsi3_3x"
+-  [(set (match_operand:SI 0 "register_operand" "=a")
+-	(ashift:SI (match_operand:SI 1 "register_operand" "r")
+-		   (ashift:SI (match_operand:SI 2 "register_operand" "r")
+-			      (const_int 3))))]
+-  ""
+-  "ssa8b\t%2\;sll\t%0, %1"
+-  [(set_attr "type"	"arith")
+-   (set_attr "mode"	"SI")
+-   (set_attr "length"	"6")])
++   (set_attr "length"	"2,3,6")])
+ 
+ (define_insn "ashrsi3"
+   [(set (match_operand:SI 0 "register_operand" "=a,a")
+@@ -1166,17 +1146,6 @@
+    (set_attr "mode"	"SI")
+    (set_attr "length"	"3,6")])
+ 
+-(define_insn "*ashrsi3_3x"
+-  [(set (match_operand:SI 0 "register_operand" "=a")
+-	(ashiftrt:SI (match_operand:SI 1 "register_operand" "r")
+-		     (ashift:SI (match_operand:SI 2 "register_operand" "r")
+-				(const_int 3))))]
+-  ""
+-  "ssa8l\t%2\;sra\t%0, %1"
+-  [(set_attr "type"	"arith")
+-   (set_attr "mode"	"SI")
+-   (set_attr "length"	"6")])
+-
+ (define_insn "lshrsi3"
+   [(set (match_operand:SI 0 "register_operand" "=a,a")
+ 	(lshiftrt:SI (match_operand:SI 1 "register_operand" "r,r")
+@@ -1196,13 +1165,151 @@
+    (set_attr "mode"	"SI")
+    (set_attr "length"	"3,6")])
+ 
+-(define_insn "*lshrsi3_3x"
++(define_insn "*xtensa_shift_3x"
+   [(set (match_operand:SI 0 "register_operand" "=a")
+-	(lshiftrt:SI (match_operand:SI 1 "register_operand" "r")
+-		     (ashift:SI (match_operand:SI 2 "register_operand" "r")
+-				(const_int 3))))]
++	(match_operator:SI 1 "xtensa_shift_3x_operator" [(match_operand:SI 2 "register_operand" "r")
++							 (ashift:SI (match_operand:SI 3 "register_operand" "r")
++								    (const_int 3))]))]
+   ""
+-  "ssa8l\t%2\;srl\t%0, %1"
++{
++  fprintf (stderr, "[*xtensa_shift_3x @ %s()] 'a %s b*8'\n",
++	   current_function_name (),
++	   GET_CODE (operands[1]) == ASHIFT ? "<<" : ">>");
++
++  switch (GET_CODE (operands[1]))
++    {
++    case ASHIFT:	return "ssa8b\t%3\;sll\t%0, %2";
++    case ASHIFTRT:	return "ssa8l\t%3\;sra\t%0, %2";
++    case LSHIFTRT:	return "ssa8l\t%3\;srl\t%0, %2";
++    default:		gcc_unreachable ();
++    }
++}
++  [(set_attr "type"     "arith")
++   (set_attr "mode"     "SI")
++   (set_attr "length"   "6")])
++
++(define_insn "*xtensa_shift_3x_1"
++  [(set (match_operand:SI 0 "register_operand" "=a")
++	(match_operator:SI 1 "xtensa_shift_3x_operator" [(match_operand:SI 2 "register_operand" "r")
++							 (and:SI (ashift:SI (match_operand:SI 3 "register_operand" "r")
++									    (const_int 3))
++								 (match_operand:SI 4 "const_int_operand" "i"))]))]
++  "(INTVAL (operands[4]) & 0x1f) == 0x18"
++{
++  fprintf (stderr, "[*xtensa_shift_3x_1 @ %s()] 'a %s (b*8&" HOST_WIDE_INT_PRINT_DEC ")'\n",
++	   current_function_name (),
++	   GET_CODE (operands[1]) == ASHIFT ? "<<" : ">>", INTVAL (operands[4]));
++
++  switch (GET_CODE (operands[1]))
++    {
++    case ASHIFT:	return "ssa8b\t%3\;sll\t%0, %2";
++    case ASHIFTRT:	return "ssa8l\t%3\;sra\t%0, %2";
++    case LSHIFTRT:	return "ssa8l\t%3\;srl\t%0, %2";
++    default:		gcc_unreachable ();
++    }
++}
++  [(set_attr "type"	"arith")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"6")])
++
++(define_insn "*xtensa_shlrd"
++  [(set (match_operand:SI 0 "register_operand" "=a")
++	(ior:SI (match_operator:SI 4 "logical_shift_operator" [(match_operand:SI 1 "register_operand" "r")
++							       (match_operand:SI 2 "register_operand" "r")])
++		(match_operator:SI 5 "logical_shift_operator" [(match_operand:SI 3 "register_operand" "r")
++							       (neg:SI (match_dup 2))])))]
++  "xtensa_shlrd_helper (operands) != UNKNOWN"
++{
++  fprintf (stderr, "[*xtensa_shlrd @ %s()] 'a %s c | b %s 32-c'\n",
++	   current_function_name (),
++	   GET_CODE (operands[4]) == ASHIFT ? "<<" : ">>", GET_CODE (operands[5]) == ASHIFT ? "<<" : ">>");
++
++  switch (xtensa_shlrd_helper (operands))
++    {
++    case ASHIFT:	return "ssl\t%2\;src\t%0, %1, %3";
++    case LSHIFTRT:	return "ssr\t%2\;src\t%0, %3, %1";
++    default:		gcc_unreachable ();
++    }
++}
++  [(set_attr "type"	"arith")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"6")])
++
++(define_insn "*xtensa_shlrd_const"
++  [(set (match_operand:SI 0 "register_operand" "=a")
++	(ior:SI (match_operator:SI 4 "logical_shift_operator" [(match_operand:SI 1 "register_operand" "r")
++							       (match_operand:SI 2 "const_int_operand" "J")])
++		(match_operator:SI 5 "logical_shift_operator" [(match_operand:SI 3 "register_operand" "r")
++							       (match_operand:SI 6 "const_int_operand" "J")])))]
++  "xtensa_shlrd_helper (operands) != UNKNOWN
++   && INTVAL (operands[2]) + INTVAL (operands[6]) == 32"
++{
++  fprintf (stderr, "[*xtensa_shlrd_const @ %s()] 'a %s " HOST_WIDE_INT_PRINT_DEC " | b %s " HOST_WIDE_INT_PRINT_DEC "'\n",
++	   current_function_name (),
++	   GET_CODE (operands[4]) == ASHIFT ? "<<" : ">>", INTVAL (operands[2]),
++	   GET_CODE (operands[5]) == ASHIFT ? "<<" : ">>", INTVAL (operands[6]));
++
++  switch (xtensa_shlrd_helper (operands))
++    {
++    case ASHIFT:	return "ssai\t%L2\;src\t%0, %1, %3";
++    case LSHIFTRT:	return "ssai\t%R2\;src\t%0, %3, %1";
++    default:		gcc_unreachable ();
++    }
++}
++  [(set_attr "type"	"arith")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"6")])
++
++(define_insn "*xtensa_shlrd_3x"
++  [(set (match_operand:SI 0 "register_operand" "=a")
++	(ior:SI (match_operator:SI 4 "logical_shift_operator" [(match_operand:SI 1 "register_operand" "r")
++							       (ashift:SI (match_operand:SI 2 "register_operand" "r")
++									  (const_int 3))])
++		(match_operator:SI 5 "logical_shift_operator" [(match_operand:SI 3 "register_operand" "r")
++							       (neg:SI (ashift:SI (match_dup 2)
++										  (const_int 3)))])))]
++  "xtensa_shlrd_helper (operands) != UNKNOWN"
++{
++  fprintf (stderr, "[*xtensa_shlrd_3x @ %s()] 'a %s (c*8) | b %s 32-(c*8)'\n",
++	   current_function_name (),
++	   GET_CODE (operands[4]) == ASHIFT ? "<<" : ">>", GET_CODE (operands[5]) == ASHIFT ? "<<" : ">>");
++
++  switch (xtensa_shlrd_helper (operands))
++    {
++    case ASHIFT:	return "ssa8b\t%2\;src\t%0, %1, %3";
++    case LSHIFTRT:	return "ssa8l\t%2\;src\t%0, %3, %1";
++    default:		gcc_unreachable ();
++    }
++}
++  [(set_attr "type"	"arith")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"6")])
++
++(define_insn "*xtensa_shlrd_3x_1"
++  [(set (match_operand:SI 0 "register_operand" "=a")
++	(ior:SI (match_operator:SI 4 "logical_shift_operator" [(match_operand:SI 1 "register_operand" "r")
++							       (and:SI (ashift:SI (match_operand:SI 2 "register_operand" "r")
++										  (const_int 3))
++								       (match_operand:SI 6 "const_int_operand" "i"))])
++		(match_operator:SI 5 "logical_shift_operator" [(match_operand:SI 3 "register_operand" "r")
++							       (neg:SI (and:SI (ashift:SI (match_dup 2)
++											  (const_int 3))
++									       (match_dup 6)))])))]
++  "xtensa_shlrd_helper (operands) != UNKNOWN
++   && (INTVAL (operands[6]) & 0x1f) == 0x18"
++{
++  fprintf (stderr, "[*xtensa_shlrd_3x_1 @ %s()] 'a %s (c*8&" HOST_WIDE_INT_PRINT_DEC ") | b %s 32-(c*8&" HOST_WIDE_INT_PRINT_DEC ")'\n",
++	   current_function_name (),
++	   GET_CODE (operands[4]) == ASHIFT ? "<<" : ">>", INTVAL (operands[6]),
++	   GET_CODE (operands[5]) == ASHIFT ? "<<" : ">>", INTVAL (operands[6]));
++
++  switch (xtensa_shlrd_helper (operands))
++    {
++    case ASHIFT:	return "ssa8b\t%2\;src\t%0, %1, %3";
++    case LSHIFTRT:	return "ssa8l\t%2\;src\t%0, %3, %1";
++    default:		gcc_unreachable ();
++    }
++}
+   [(set_attr "type"	"arith")
+    (set_attr "mode"	"SI")
+    (set_attr "length"	"6")])
+-- 
+2.20.1
+
