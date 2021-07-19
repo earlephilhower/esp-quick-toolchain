@@ -1,0 +1,39 @@
+From 88321ac7d29517924cc4d4856c124018f2fb7920 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Mon, 17 May 2021 15:46:59 +0900
+Subject: [PATCH 03/13] GCC: xtensa (TARGET_CONST_ANCHOR): enable
+ 'const-anchor' optimization
+
+---
+ gcc/config/xtensa/xtensa.h | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/gcc/config/xtensa/xtensa.h b/gcc/config/xtensa/xtensa.h
+index 2fa8730ac..415957a00 100644
+--- a/gcc/config/xtensa/xtensa.h
++++ b/gcc/config/xtensa/xtensa.h
+@@ -79,6 +79,21 @@ along with GCC; see the file COPYING3.  If not see
+ #define TARGET_HAS_NO_HW_DIVIDE
+ #endif
+ 
++/* On some architectures it can take multiple instructions to
++   synthesize a constant.  If there is another constant already in a
++   register that is close enough in value then it is preferable that
++   the new constant is computed from this register using immediate
++   addition or subtraction.  (*snip*)  TARGET_CONST_ANCHOR should be
++   the maximum positive value accepted by immediate-add plus one.  We
++   currently assume that the value of TARGET_CONST_ANCHOR is a power
++   of 2.
++   (Literature:  GNU Compiler Collection Internals, 18.31 Miscellane-
++    ous Parameters)
++
++   In the Xtensa ISA, "ADDI at,as,imm8" instruction corresponds to
++   it.  */
++#define TARGET_CONST_ANCHOR 128
++
+ 
+ /* Target CPU builtins.  */
+ #define TARGET_CPU_CPP_BUILTINS()					\
+-- 
+2.20.1
+
