@@ -1,0 +1,140 @@
+From 713126dcfec2e5b28ab61bd12a2c482cabea3f85 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Thu, 27 May 2021 19:04:12 +0900
+Subject: [PATCH 11/13] GCC: xtensa: make use of "BALL/BNALL" instructions
+
+- add *mask[true|false]_bitcmpl pattern, worthwhile to consider the cost of bitwise complement
+  that requires two instructions (loading minus one, and XORing) in Xtensa ISA
+---
+ gcc/config/xtensa/xtensa-protos.h |  1 +
+ gcc/config/xtensa/xtensa.c        | 31 ++++++++++++++++++
+ gcc/config/xtensa/xtensa.md       | 52 ++++++++++++++++++++++++-------
+ 3 files changed, 72 insertions(+), 12 deletions(-)
+
+diff --git a/gcc/config/xtensa/xtensa-protos.h b/gcc/config/xtensa/xtensa-protos.h
+index 7f7a93e99..bb0e63b06 100644
+--- a/gcc/config/xtensa/xtensa-protos.h
++++ b/gcc/config/xtensa/xtensa-protos.h
+@@ -51,6 +51,7 @@ extern void xtensa_expand_atomic (enum rtx_code, rtx, rtx, rtx, bool);
+ extern void xtensa_emit_loop_end (rtx_insn *, rtx *);
+ extern char *xtensa_emit_branch (bool, bool, rtx *);
+ extern char *xtensa_emit_bit_branch (bool, bool, rtx *);
++extern char *xtensa_emit_mask_branch (bool, bool, rtx *);
+ extern char *xtensa_emit_movcc (bool, bool, bool, rtx *);
+ extern char *xtensa_emit_call (int, rtx *);
+ extern bool xtensa_tls_referenced_p (rtx);
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index 2733ffed2..2564a589c 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -1968,6 +1968,37 @@ xtensa_emit_bit_branch (bool inverted, bool immed, rtx *operands)
+ }
+ 
+ 
++char *
++xtensa_emit_mask_branch (bool inverted, bool bitcmpl, rtx *operands)
++{
++  static char result[64];
++  const char *op_eq0, *op_ne0;
++  const char *op;
++
++  if (bitcmpl)
++    {
++      op_eq0 = "all";
++      op_ne0 = "nall";
++    }
++  else
++    {
++      op_eq0 = "none";
++      op_ne0 = "any";
++    }
++
++  switch (GET_CODE (operands[3]))
++    {
++    case EQ:	op = inverted ? op_ne0 : op_eq0; break;
++    case NE:	op = inverted ? op_eq0 : op_ne0; break;
++    default:	gcc_unreachable ();
++    }
++
++  sprintf (result, "b%s\t%%0, %%1, %%2", op);
++
++  return result;
++}
++
++
+ char *
+ xtensa_emit_movcc (bool inverted, bool isfp, bool isbool, rtx *operands)
+ {
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index 582a5c2ad..bbe7e5f00 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -1475,12 +1475,26 @@
+ 		      (pc)))]
+   ""
+ {
+-  switch (GET_CODE (operands[3]))
+-    {
+-    case EQ:		return "bnone\t%0, %1, %2";
+-    case NE:		return "bany\t%0, %1, %2";
+-    default:		gcc_unreachable ();
+-    }
++  return xtensa_emit_mask_branch (false, false, operands);
++}
++  [(set_attr "type"	"jump")
++   (set_attr "mode"	"none")
++   (set_attr "length"	"3")])
++
++(define_insn "*masktrue_bitcmpl"
++  [(set (pc)
++	(if_then_else (match_operator 3 "boolean_operator"
++		 [(and:SI (not:SI (match_operand:SI 0 "register_operand" "r"))
++			  (match_operand:SI 1 "register_operand" "r"))
++		  (const_int 0)])
++		      (label_ref (match_operand 2 "" ""))
++		      (pc)))]
++  ""
++{
++  fprintf (stderr, "[*masktrue_bitcmpl @ %s()]\n",
++	   current_function_name ());
++
++  return xtensa_emit_mask_branch (false, true, operands);
+ }
+   [(set_attr "type"	"jump")
+    (set_attr "mode"	"none")
+@@ -1496,12 +1510,26 @@
+ 		      (label_ref (match_operand 2 "" ""))))]
+   ""
+ {
+-  switch (GET_CODE (operands[3]))
+-    {
+-    case EQ:		return "bany\t%0, %1, %2";
+-    case NE:		return "bnone\t%0, %1, %2";
+-    default:		gcc_unreachable ();
+-    }
++  return xtensa_emit_mask_branch (true, false, operands);
++}
++  [(set_attr "type"	"jump")
++   (set_attr "mode"	"none")
++   (set_attr "length"	"3")])
++
++(define_insn "*maskfalse_bitcmpl"
++  [(set (pc)
++	(if_then_else (match_operator 3 "boolean_operator"
++		 [(and:SI (not:SI (match_operand:SI 0 "register_operand" "r"))
++			  (match_operand:SI 1 "register_operand" "r"))
++		  (const_int 0)])
++		      (pc)
++		      (label_ref (match_operand 2 "" ""))))]
++  ""
++{
++  fprintf (stderr, "[*maskfalse_bitcmpl @ %s()]\n",
++	   current_function_name ());
++
++  return xtensa_emit_mask_branch (true, true, operands);
+ }
+   [(set_attr "type"	"jump")
+    (set_attr "mode"	"none")
+-- 
+2.20.1
+
