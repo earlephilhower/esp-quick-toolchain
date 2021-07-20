@@ -1,0 +1,34 @@
+From 61dc025addbecce5f8d88541aad051936ce15c9f Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Mon, 17 May 2021 09:36:20 +0900
+Subject: [PATCH 02/13] GCC: xtensa (TARGET_HAS_NO_HW_DIVIDE): obey the 32-bit
+ Integer Divide Option
+
+- on ESP8266 (xtensa-lx106), this reduces the size of:
+    `__moddi3()` @ libgcc.a :  969 -> 301 (saves 668)
+    `__divmoddi4()`         : 1111 -> 426 (saves 685)
+    `__udivmoddi4()`        : 1043 -> 319 (saves 724)
+  in bytes, respectively.
+---
+ gcc/config/xtensa/xtensa.h | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/gcc/config/xtensa/xtensa.h b/gcc/config/xtensa/xtensa.h
+index f058ffc25..2fa8730ac 100644
+--- a/gcc/config/xtensa/xtensa.h
++++ b/gcc/config/xtensa/xtensa.h
+@@ -74,6 +74,11 @@ along with GCC; see the file COPYING3.  If not see
+ #define HAVE_AS_TLS 0
+ #endif
+ 
++/* Define this if the target has no hardware divide instructions.  */
++#if !TARGET_DIV32
++#define TARGET_HAS_NO_HW_DIVIDE
++#endif
++
+ 
+ /* Target CPU builtins.  */
+ #define TARGET_CPU_CPP_BUILTINS()					\
+-- 
+2.20.1
+

@@ -1,0 +1,105 @@
+From 39c87d1fdb5fb2fb7d3128de662b79f9cdefd076 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Mon, 17 May 2021 11:40:29 +0900
+Subject: [PATCH 07/13] GCC: xtensa: improve bswap[sd]i2 insn patterns
+
+- make them better register allocation
+- use bswapsi2 regardless of `optimize_size` in order to take advantage of GIMPLE manual byte-swapping recognition
+  (based on the following additional facts; inlined insn costs of bswapsi2 is only 5 and same as ctzsi2/ffssi2 in case TARGET_NSA is true,
+   and calling function also implies clobbering registers, often requires unwanted register preservation insns)
+- suppress insn expanding of bswapdi2 with corresponding library call when `optimize <= 1 || optimize_size`
+- omit the second occurrence of "ssai 8" when two bswapsi2s are adjacent (eg. in expansion of bswapdi2)
+
+now, with `-O[2s]`, both
+```
+/* from lwip2/include/lwip/def.h */
+#define PP_HTONL(x) ((((x) & (u32_t)0x000000ffUL) << 24) | \
+                     (((x) & (u32_t)0x0000ff00UL) <<  8) | \
+                     (((x) & (u32_t)0x00ff0000UL) >>  8) | \
+                     (((x) & (u32_t)0xff000000UL) >> 24))
+
+u32_t htonl_test(u32_t x) {
+    return PP_HTONL(x);
+}
+```
+and
+```
+uint32_t htonl_test(uint32_t x) {
+    union {
+        uint32_t i;
+        uint8_t a[4];
+    } u, v;
+    u.i = x;
+    v.a[0] = u.a[3];
+    v.a[1] = u.a[2];
+    v.a[2] = u.a[1];
+    v.a[3] = u.a[0];
+    return v.i;
+}
+```
+are compiled to the same result:
+```
+htonl_test:
+	ssai	8
+	srli	a3, a2, 16
+	src	a3, a3, a2
+	src	a3, a3, a3
+	src	a2, a2, a3
+	ret.n
+```
+---
+ gcc/config/xtensa/xtensa.md | 34 ++++++++++++++++++++++------------
+ 1 file changed, 22 insertions(+), 12 deletions(-)
+
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index 1ff827ce9..05ee7afcb 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -472,22 +472,32 @@
+ ;; Byte swap.
+ 
+ (define_insn "bswapsi2"
+-  [(set (match_operand:SI 0 "register_operand" "=&a")
+-	(bswap:SI (match_operand:SI 1 "register_operand" "r")))]
+-  "!optimize_size"
+-  "ssai\t8\;srli\t%0, %1, 16\;src\t%0, %0, %1\;src\t%0, %0, %0\;src\t%0, %1, %0"
++  [(set (match_operand:SI 0 "register_operand" "=a")
++	(bswap:SI (match_operand:SI 1 "register_operand" "r")))
++   (clobber (match_scratch:SI 2 "=&a"))]
++  ""
++{
++  rtx_insn *prev_insn = prev_nonnote_nondebug_insn (insn);
++
++  if (prev_insn && INSN_CODE (prev_insn) == CODE_FOR_bswapsi2)
++    return	    "srli\t%2, %1, 16\;src\t%2, %2, %1\;src\t%2, %2, %2\;src\t%0, %1, %2";
++  else
++    return "ssai\t8\;srli\t%2, %1, 16\;src\t%2, %2, %1\;src\t%2, %2, %2\;src\t%0, %1, %2";
++}
+   [(set_attr "type"	"arith")
+    (set_attr "mode"	"SI")
+    (set_attr "length"	"15")])
+ 
+-(define_insn "bswapdi2"
+-  [(set (match_operand:DI 0 "register_operand" "=&a")
+-	(bswap:DI (match_operand:DI 1 "register_operand" "r")))]
+-  "!optimize_size"
+-  "ssai\t8\;srli\t%0, %D1, 16\;src\t%0, %0, %D1\;src\t%0, %0, %0\;src\t%0, %D1, %0\;srli\t%D0, %1, 16\;src\t%D0, %D0, %1\;src\t%D0, %D0, %D0\;src\t%D0, %1, %D0"
+-  [(set_attr "type"	"arith")
+-   (set_attr "mode"	"DI")
+-   (set_attr "length"	"27")])
++(define_expand "bswapdi2"
++  [(set (match_operand:DI 0 "register_operand" "")
++	(bswap:DI (match_operand:DI 1 "register_operand" "")))]
++  "optimize <= 1 || optimize_size"
++{
++  emit_library_call_value (gen_rtx_SYMBOL_REF (Pmode, "__bswapdi2"),
++			   operands[0], LCT_NORMAL, DImode,
++			   operands[1], DImode);
++  DONE;
++})
+ 
+ 
+ ;; Negation and one's complement.
+-- 
+2.20.1
+

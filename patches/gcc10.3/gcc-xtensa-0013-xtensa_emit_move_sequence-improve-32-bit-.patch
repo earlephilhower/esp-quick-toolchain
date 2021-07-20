@@ -1,0 +1,152 @@
+From 44578d1072f5e95265c9fde47b8deb19fcf08434 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Tue, 18 May 2021 01:30:25 +0900
+Subject: [PATCH 09/13] GCC: xtensa (xtensa_emit_move_sequence): improve 32-bit
+ integer constant synthesis
+
+- now work well when the destination is not a register, eg. `*ptr = 0x18000UL;`
+- add 3 synthesis patterns; when the constant cannot fit into a signed 12-bit integer but:
+    i.   written as a power of two minus one (eg. 32767, 65535 or 0x7fffffffUL)
+    ii.  within the range of -2049 to 2062, if the Code Density Option is configured
+    iii. within the range of -34816 to 34559
+- become more CSE-friendly
+---
+ gcc/config/xtensa/xtensa.c | 111 ++++++++++++++++++++++++++++++++++---
+ 1 file changed, 103 insertions(+), 8 deletions(-)
+
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index ec7c40e1f..11794e010 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -1024,6 +1024,33 @@ xtensa_split_operand_pair (rtx operands[4], machine_mode mode)
+ }
+ 
+ 
++/* Emit insns to store synthesized SImode constant into dst.  */
++
++static int
++xtensa_emit_const_synth_sequence (rtx dst, rtx (*gen_opr_si3)(rtx, rtx, rtx),
++				  HOST_WIDE_INT const0, HOST_WIDE_INT const1)
++{
++  rtx reg0, reg1;
++
++  if (can_create_pseudo_p ())
++    {
++      reg0 = gen_reg_rtx (SImode);
++      reg1 = register_operand (dst, SImode) ? dst : gen_reg_rtx (SImode);
++    }
++  else if (register_operand (dst, SImode))
++    reg1 = reg0 = dst;
++  else
++    return 0;
++
++  emit_insn (gen_movsi (reg0, GEN_INT (const0)));
++  emit_insn (gen_opr_si3 (reg1, reg0, GEN_INT (const1)));
++  if (dst != reg1)
++    emit_insn (gen_movsi (dst, reg1));
++
++  return 1;
++}
++
++
+ /* Emit insns to move operands[1] into operands[0].
+    Return 1 if we have written out everything that needs to be done to
+    do the move.  Otherwise, return 0 and the caller will emit the move
+@@ -1061,18 +1088,86 @@ xtensa_emit_move_sequence (rtx *operands, machine_mode mode)
+ 
+       if (! TARGET_AUTO_LITPOOLS && ! TARGET_CONST16)
+ 	{
+-	  /* Try to emit MOVI + SLLI sequence, that is smaller
+-	     than L32R + literal.  */
+-	  if (optimize_size && mode == SImode && register_operand (dst, mode))
++	  /* Try to emit MOVI + "binary operator" instruction sequence,
++	     that is smaller than L32R + literal.  */
++	  if (optimize_size && mode == SImode)
+ 	    {
+ 	      HOST_WIDE_INT srcval = INTVAL (src);
+-	      int shift = ctz_hwi (srcval);
+ 
+-	      if (xtensa_simm12b (srcval >> shift))
++	      /* Check if the value of operands[1] do not fit into MOVI
++		 instruction.  */
++	      if (! xtensa_simm12b (srcval))
+ 		{
+-		  emit_move_insn (dst, GEN_INT (srcval >> shift));
+-		  emit_insn (gen_ashlsi3_internal (dst, dst, GEN_INT (shift)));
+-		  return 1;
++		  HOST_WIDE_INT hi, lo;
++
++		  /* Synthesize a constant by MOVI + SRLI/EXTUI sequence
++		     (5 bytes if TARGET_DENSITY, or 6 otherwise).  */
++		  int shift = exact_log2 (srcval + 1);
++
++		  if (shift >= 1 && shift <= 31
++		      && xtensa_emit_const_synth_sequence (dst, gen_lshrsi3,
++							   -1, 32 - shift))
++		    {
++		      fprintf (stderr, "[xtensa_const_synth @ %s(), line %d] '" HOST_WIDE_INT_PRINT_DEC "' => '-1U >> %d'\n",
++			       current_function_name (), LOCATION_LINE (curr_insn_location ()),
++			       srcval, 32 - shift);
++
++		      return 1;
++		    }
++
++		  /* Synthesize a constant by MOVI + ADDI.N sequence
++		     (5 bytes iff. TARGET_DENSITY).  */
++		  if (TARGET_DENSITY
++		      && srcval >= (-2048 - 1) && srcval <= (2047 + 15))
++		    {
++		      hi = srcval < 0 ? -2048 : 2047;
++		      lo = srcval - hi;
++		      if (xtensa_emit_const_synth_sequence (dst, gen_addsi3,
++							    hi, lo))
++			{
++			  fprintf (stderr, "[xtensa_const_synth @ %s(), line %d] '" HOST_WIDE_INT_PRINT_DEC "' = '" HOST_WIDE_INT_PRINT_DEC " + " HOST_WIDE_INT_PRINT_DEC "'\n",
++				   current_function_name (), LOCATION_LINE (curr_insn_location ()),
++				   srcval, hi, lo);
++
++			  return 1;
++			}
++		    }
++
++		  /* Synthesize a constant by MOVI + SLLI sequence
++		     (5 or 6 bytes).  */
++		  shift = ctz_hwi (srcval);
++		  if (xtensa_simm12b (srcval >> shift)
++		      && xtensa_emit_const_synth_sequence (dst, gen_ashlsi3_internal,
++							   srcval >> shift, shift))
++		    {
++		      fprintf (stderr, "[xtensa_const_synth @ %s(), line %d] '" HOST_WIDE_INT_PRINT_DEC "' = '" HOST_WIDE_INT_PRINT_DEC " << %d'\n",
++			       current_function_name (), LOCATION_LINE (curr_insn_location ()),
++			       srcval, srcval >> shift, shift);
++
++		      return 1;
++		    }
++
++		  /* Synthesize a constant by MOVI + ADDMI sequence
++		     (5 or 6 bytes).  */
++		  if (srcval >= (-2048 - 32768) && srcval <= (2047 + 32512))
++		    {
++		      if (srcval < -32768)
++			hi = -32768;
++		      else if (srcval > 32512)
++			hi = 32512;
++		      else
++			hi = srcval & ~255;
++		      lo = srcval - hi;
++		      if (xtensa_emit_const_synth_sequence (dst, gen_addsi3,
++							    lo, hi))
++			{
++			  fprintf (stderr, "[xtensa_const_synth @ %s(), line %d] '" HOST_WIDE_INT_PRINT_DEC "' = '" HOST_WIDE_INT_PRINT_DEC " + " HOST_WIDE_INT_PRINT_DEC "'\n",
++				   current_function_name (), LOCATION_LINE (curr_insn_location ()),
++				   srcval, lo, hi);
++
++			  return 1;
++			}
++		    }
+ 		}
+ 	    }
+ 
+-- 
+2.20.1
+

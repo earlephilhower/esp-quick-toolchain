@@ -1,0 +1,296 @@
+From 9d7b900a83436efab51bc2868e5ec0e42e8ab88c Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Mon, 31 May 2021 12:48:56 +0900
+Subject: [PATCH 12/13] GCC: xtensa: improve specific forms of logical bitwise
+ AND + optionally followed by BRANCH-IF-(NOT)ZERO or logical left/right SHIFT
+
+generally, in Xtensa ISA, `y = x & CONST;` is compiled to:
+```
+	movi	ay, 12BIT_CONST
+	and	ay, ax, ay
+; 5 or 6 bytes
+```
+or
+```
+	.literal_position
+	.literal .LC0, 32BIT_CONST
+...
+	l32r	ay, .LC0
+	and	ay, ax, ay
+; 6 bytes + 4 bytes in litpool, possibly 1 clock stall
+```
+
+however, if `CONST` can be represented as `(((1 << MASK_BITS) - 1) << MASK_SHIFT)` where `MASK_BITS` is between 1 to 16 and `MASK_SHIFT` is between 1 to 31,
+```
+	extui	ay, ax, MASK_SHIFT, MASK_BITS
+	slli	ay, ay, MASK_SHIFT	; or "add.n  ay, ay, ay" if MASK_SHIFT is 1 and TARGET_DENSITY
+; 5 or 6 bytes, and possibly less register pressure due to no need of allocation for constant
+```
+obviously, it can be advantageous only if `CONST` cannot fit into the MOVI instruction (signed 12 bits).
+
+for example,
+
+`y = x & 0x007F8000UL;`:
+```
+	extui	ay, ax, 15, 8
+	slli	ay, ay, 15
+; 6 bytes
+```
+
+`y = x & 0x00000FFEUL;`: (if the Code Density Option is configured):
+```
+	extui	ay, ax, 1, 13
+	add.n	ay, ay, ay
+; 5 bytes
+```
+
+in the same way as above, 'if (x & 0x0FFF8000UL) { ... }':
+```
+	extui	ay, ax, 15, 13
+	beqz	ay, .L0
+; 5 or 6 bytes
+	...
+.L0:
+```
+`y = (x & CONST) << SHIFT;`:
+```
+	extui	ay, ax, MASK_SHIFT, MASK_BITS
+	slli	ay, ay, MASK_SHIFT + SHIFT	; must be between 1 to 31
+; 6 bytes
+```
+and `y = (x & CONST) >> SHIFT;`:
+```
+	extui	ay, ax, MASK_SHIFT, MASK_BITS
+	slli	ay, ay, MASK_SHIFT - SHIFT	; must be between 1 to 31
+; 6 bytes
+```
+---
+ gcc/config/xtensa/predicates.md   | 10 ++++
+ gcc/config/xtensa/xtensa-protos.h |  2 +
+ gcc/config/xtensa/xtensa.c        | 54 +++++++++++++++++++
+ gcc/config/xtensa/xtensa.md       | 88 +++++++++++++++++++++++++++++++
+ 4 files changed, 154 insertions(+)
+
+diff --git a/gcc/config/xtensa/predicates.md b/gcc/config/xtensa/predicates.md
+index 36346018b..80bc45f70 100644
+--- a/gcc/config/xtensa/predicates.md
++++ b/gcc/config/xtensa/predicates.md
+@@ -177,3 +177,13 @@
+ (define_predicate "tls_symbol_operand"
+   (and (match_code "symbol_ref")
+        (match_test "SYMBOL_REF_TLS_MODEL (op) != 0")))
++
++(define_predicate "shifted_mask_operand"
++  (match_code "const_int")
++{
++  HOST_WIDE_INT mask = INTVAL (op);
++  int shifted = ctz_hwi (mask);
++
++  return shifted >= 1 && shifted <= 31
++	 && xtensa_mask_immediate ((uint32_t)mask >> shifted);
++})
+diff --git a/gcc/config/xtensa/xtensa-protos.h b/gcc/config/xtensa/xtensa-protos.h
+index bb0e63b06..d5e5ec04a 100644
+--- a/gcc/config/xtensa/xtensa-protos.h
++++ b/gcc/config/xtensa/xtensa-protos.h
+@@ -52,10 +52,12 @@ extern void xtensa_emit_loop_end (rtx_insn *, rtx *);
+ extern char *xtensa_emit_branch (bool, bool, rtx *);
+ extern char *xtensa_emit_bit_branch (bool, bool, rtx *);
+ extern char *xtensa_emit_mask_branch (bool, bool, rtx *);
++extern char *xtensa_emit_mask_1_branch (bool, rtx *);
+ extern char *xtensa_emit_movcc (bool, bool, bool, rtx *);
+ extern char *xtensa_emit_call (int, rtx *);
+ extern bool xtensa_tls_referenced_p (rtx);
+ extern enum rtx_code xtensa_shlrd_helper (rtx *);
++extern int xtensa_paired_shift_and_helper (rtx *);
+ 
+ #ifdef TREE_CODE
+ extern void init_cumulative_args (CUMULATIVE_ARGS *, int);
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index 2564a589c..f475c59de 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -1999,6 +1999,36 @@ xtensa_emit_mask_branch (bool inverted, bool bitcmpl, rtx *operands)
+ }
+ 
+ 
++char *
++xtensa_emit_mask_1_branch (bool inverted, rtx *operands)
++{
++  HOST_WIDE_INT mask = INTVAL (operands[1]);
++  int shifted = ctz_hwi (mask);
++  int mask_size = floor_log2 (((uint32_t)mask >> shifted) + 1);
++  static char result[64];
++  const char *op;
++
++  switch (GET_CODE (operands[3]))
++    {
++    case EQ:	op = inverted ? "ne" : "eq"; break;
++    case NE:	op = inverted ? "eq" : "ne"; break;
++    default:	gcc_unreachable ();
++    }
++
++  fprintf (stderr, "[xtensa_emit_mask_1_branch @ %s()] 'if ((x & " HOST_WIDE_INT_PRINT_DEC ") %s 0)' => 'if (extzv(x, %d, %d) %s 0)'\n",
++	   current_function_name (),
++	   mask, *op == 'n' ? "!=" : "==", mask_size, shifted, *op == 'n' ? "!=" : "==");
++
++  operands[1] = GEN_INT (shifted);
++  operands[3] = GEN_INT (mask_size);
++
++  sprintf (result, "extui\t%%4, %%0, %%1, %%3\n\tb%sz%s\t%%4, %%2", op,
++	   TARGET_DENSITY ? ".n" : "");
++
++  return result;
++}
++
++
+ char *
+ xtensa_emit_movcc (bool inverted, bool isfp, bool isbool, rtx *operands)
+ {
+@@ -2298,6 +2328,30 @@ xtensa_cannot_force_const_mem (machine_mode mode ATTRIBUTE_UNUSED, rtx x)
+ }
+ 
+ 
++/* Helper function for "*xtensa_paired_shift_and" pattern.  */
++
++int
++xtensa_paired_shift_and_helper (rtx *operands)
++{
++  int shifting = INTVAL (operands[2]) & 0x1f;
++  HOST_WIDE_INT mask = INTVAL (operands[3]);
++  int shifted = ctz_hwi (mask);
++  int mask_size = floor_log2 (((uint32_t)mask >> shifted) + 1);
++  int mask_pos;
++
++  switch (GET_CODE (operands[4]))
++    {
++    case ASHIFT:	mask_pos = shifted - shifting; break;
++    case LSHIFTRT:	mask_pos = shifted + shifting; break;
++    default:		gcc_unreachable ();
++    }
++
++  return mask_pos < 1 || mask_pos > 31
++	 ? 0
++	 : shifted | (mask_size << 5) | (mask_pos << 10);
++}
++
++
+ /* Return the debugger register number to use for 'regno'.  */
+ 
+ int
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index bbe7e5f00..709460d5c 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -546,6 +546,60 @@
+    (set_attr "mode"	"SI")
+    (set_attr "length"	"3,3")])
+ 
++(define_insn "*xtensa_andsi3_1"
++  [(set (match_operand:SI 0 "register_operand" "=a")
++	(and:SI (match_operand:SI 1 "register_operand" "r")
++		(match_operand:SI 2 "shifted_mask_operand" "i")))]
++  "!xtensa_simm12b (INTVAL (operands[2]))"
++{
++  HOST_WIDE_INT mask = INTVAL (operands[2]);
++  int shifted = ctz_hwi (mask);
++  int mask_size = floor_log2 (((uint32_t)mask >> shifted) + 1);
++
++  fprintf (stderr, "[*xtensa_andsi3_1 @ %s()] 'x & " HOST_WIDE_INT_PRINT_DEC "' => 'extzv(x, %d, %d) << %d'\n",
++	   current_function_name (),
++	   mask, mask_size, shifted, shifted);
++
++  operands[2] = GEN_INT (shifted);
++  operands[3] = GEN_INT (mask_size);
++
++  return TARGET_DENSITY && shifted == 1
++	 ? "extui\t%0, %1, %2, %3\;add.n\t%0, %0, %0"
++	 : "extui\t%0, %1, %2, %3\;slli\t%0, %0, %2";
++}
++  [(set_attr "type"	"arith")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"6")])
++
++(define_insn "*xtensa_paired_shift_and"
++  [(set (match_operand:SI 0 "register_operand" "=a")
++	(and:SI (match_operator:SI 4 "logical_shift_operator" [(match_operand:SI 1 "register_operand" "r")
++							       (match_operand:SI 2 "const_int_operand" "i")])
++		(match_operand:SI 3 "shifted_mask_operand" "i")))]
++  "xtensa_paired_shift_and_helper (operands) != 0"
++{
++  int helper = xtensa_paired_shift_and_helper (operands);
++  int shifted = helper & 0x1f;
++  int mask_size = (helper >> 5) & 0x1f;
++  int mask_pos = (helper >> 10) & 0x1f;
++
++  fprintf (stderr, "[*xtensa_paired_shift_and @ %s()] '(x %s " HOST_WIDE_INT_PRINT_DEC ") & " HOST_WIDE_INT_PRINT_DEC "' => 'extzv(x, %d, %d) << %d'\n",
++	   current_function_name (),
++	   GET_CODE (operands[4]) == ASHIFT ? "<<" : ">>", INTVAL (operands[2]) & 0x1f, INTVAL (operands[3]),
++	   mask_size, mask_pos, shifted);
++
++  operands[2] = GEN_INT (mask_pos);
++  operands[3] = GEN_INT (mask_size);
++  operands[4] = GEN_INT (shifted);
++
++  return TARGET_DENSITY && shifted == 1
++	 ? "extui\t%0, %1, %2, %3\;add.n\t%0, %0, %0"
++	 : "extui\t%0, %1, %2, %3\;slli\t%0, %0, %4";
++}
++  [(set_attr "type"	"arith")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"6")])
++
+ (define_insn "iorsi3"
+   [(set (match_operand:SI 0 "register_operand" "=a")
+ 	(ior:SI (match_operand:SI 1 "register_operand" "%r")
+@@ -1481,6 +1535,23 @@
+    (set_attr "mode"	"none")
+    (set_attr "length"	"3")])
+ 
++(define_insn "*masktrue_1"
++  [(set (pc)
++	(if_then_else (match_operator 3 "boolean_operator"
++		 [(and:SI (match_operand:SI 0 "register_operand" "r")
++			  (match_operand:SI 1 "shifted_mask_operand" "i"))
++		  (const_int 0)])
++		      (label_ref (match_operand 2 "" ""))
++		      (pc)))
++   (clobber (match_scratch:SI 4 "=a"))]
++  "!xtensa_simm12b (INTVAL (operands[1]))"
++{
++  return xtensa_emit_mask_1_branch (false, operands);
++}
++  [(set_attr "type"     "jump")
++   (set_attr "mode"     "none")
++   (set_attr "length"   "6")])
++
+ (define_insn "*masktrue_bitcmpl"
+   [(set (pc)
+ 	(if_then_else (match_operator 3 "boolean_operator"
+@@ -1516,6 +1587,23 @@
+    (set_attr "mode"	"none")
+    (set_attr "length"	"3")])
+ 
++(define_insn "*maskfalse_1"
++  [(set (pc)
++       (if_then_else (match_operator 3 "boolean_operator"
++                [(and:SI (match_operand:SI 0 "register_operand" "r")
++                         (match_operand:SI 1 "shifted_mask_operand" "i"))
++                 (const_int 0)])
++                     (pc)
++                     (label_ref (match_operand 2 "" ""))))
++   (clobber (match_scratch:SI 4 "=a"))]
++  "!xtensa_simm12b (INTVAL (operands[1]))"
++{
++  return xtensa_emit_mask_1_branch (true, operands);
++}
++  [(set_attr "type"     "jump")
++   (set_attr "mode"     "none")
++   (set_attr "length"   "6")])
++
+ (define_insn "*maskfalse_bitcmpl"
+   [(set (pc)
+ 	(if_then_else (match_operator 3 "boolean_operator"
+-- 
+2.20.1
+
