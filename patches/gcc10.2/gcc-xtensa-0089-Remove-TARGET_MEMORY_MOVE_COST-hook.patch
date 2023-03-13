@@ -1,0 +1,60 @@
+From 817f46a47cc812fc3c7f4d3dcda8f89ce85fbe22 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Sun, 18 Jun 2023 16:07:12 +0900
+Subject: [PATCH] xtensa: Remove TARGET_MEMORY_MOVE_COST hook
+
+It used to always return a constant 4, which is same as the default
+behavior, but doesn't take into account the effects of secondary
+reloads.
+
+Therefore, the implementation of this target hook is removed.
+
+gcc/ChangeLog:
+
+	* config/xtensa/xtensa.c
+	(TARGET_MEMORY_MOVE_COST, xtensa_memory_move_cost): Remove.
+---
+ gcc/config/xtensa/xtensa.c | 13 -------------
+ 1 file changed, 13 deletions(-)
+
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index 714e257f0..48d8822f9 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -131,7 +131,6 @@ static bool xtensa_rtx_costs (rtx, machine_mode, int, int, int *, bool);
+ static int xtensa_insn_cost (rtx_insn *, bool);
+ static int xtensa_register_move_cost (machine_mode, reg_class_t,
+ 				      reg_class_t);
+-static int xtensa_memory_move_cost (machine_mode, reg_class_t, bool);
+ static tree xtensa_build_builtin_va_list (void);
+ static bool xtensa_return_in_memory (const_tree, const_tree);
+ static tree xtensa_gimplify_va_arg_expr (tree, tree, gimple_seq *,
+@@ -209,8 +208,6 @@ static bool xtensa_lra_p (void);
+ 
+ #undef TARGET_REGISTER_MOVE_COST
+ #define TARGET_REGISTER_MOVE_COST xtensa_register_move_cost
+-#undef TARGET_MEMORY_MOVE_COST
+-#define TARGET_MEMORY_MOVE_COST xtensa_memory_move_cost
+ #undef TARGET_RTX_COSTS
+ #define TARGET_RTX_COSTS xtensa_rtx_costs
+ #undef TARGET_INSN_COST
+@@ -4387,16 +4384,6 @@ xtensa_register_move_cost (machine_mode mode ATTRIBUTE_UNUSED,
+     return 10;
+ }
+ 
+-/* Worker function for TARGET_MEMORY_MOVE_COST.  */
+-
+-static int
+-xtensa_memory_move_cost (machine_mode mode ATTRIBUTE_UNUSED,
+-			 reg_class_t rclass ATTRIBUTE_UNUSED,
+-			 bool in ATTRIBUTE_UNUSED)
+-{
+-  return 4;
+-}
+-
+ /* Compute a (partial) cost for rtx X.  Return true if the complete
+    cost has been computed, and false if subexpressions should be
+    scanned.  In either case, *TOTAL contains the cost result.  */
+-- 
+2.30.2
+

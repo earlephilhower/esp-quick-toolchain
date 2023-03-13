@@ -1,0 +1,136 @@
+From e0a5a834dc034c239ae7f319d0287fb24db13744 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Mon, 27 Feb 2023 02:27:42 +0900
+Subject: [PATCH] xtensa: Make use of CLAMPS instruction if configured
+
+This patch introduces the use of CLAMPS instruction when the instruction
+is configured.
+
+    /* example */
+    int test(int a) {
+      if (a < -512)
+        return -512;
+      if (a > 511)
+        return 511;
+      return a;
+    }
+
+    ;; prereq: TARGET_CLAMPS
+    test:
+	clamps	a2, a2, 9
+	ret.n
+
+gcc/ChangeLog:
+
+	* config/xtensa/xtensa-protos.h (xtensa_match_CLAMPS_imms_p):
+	New prototype.
+	* config/xtensa/xtensa.c (xtensa_match_CLAMPS_imms_p):
+	New function.
+	* config/xtensa/xtensa.h (TARGET_CLAMPS): New macro definition.
+	* config/xtensa/xtensa.md (*xtensa_clamps): New insn pattern.
+---
+ gcc/config/xtensa/xtensa-protos.h |  1 +
+ gcc/config/xtensa/xtensa.c        | 13 +++++++++++
+ gcc/config/xtensa/xtensa.h        |  1 +
+ gcc/config/xtensa/xtensa.md       | 37 +++++++++++++++++++++++++++++++
+ 4 files changed, 52 insertions(+)
+
+diff --git a/gcc/config/xtensa/xtensa-protos.h b/gcc/config/xtensa/xtensa-protos.h
+index 74a5d93a0..59e5cd1bb 100644
+--- a/gcc/config/xtensa/xtensa-protos.h
++++ b/gcc/config/xtensa/xtensa-protos.h
+@@ -60,6 +60,7 @@ extern bool xtensa_tls_referenced_p (rtx);
+ extern enum rtx_code xtensa_shlrd_which_direction (rtx, rtx);
+ extern bool xtensa_split1_finished_p (void);
+ extern void xtensa_split_DI_reg_imm (rtx *);
++extern bool xtensa_match_CLAMPS_imms_p (rtx, rtx);
+ 
+ #ifdef TREE_CODE
+ extern void init_cumulative_args (CUMULATIVE_ARGS *, int);
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index 1e0820d4f..a62665d6b 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -2602,6 +2602,19 @@ xtensa_emit_add_imm (rtx dst, rtx src, HOST_WIDE_INT imm, rtx scratch,
+ }
+ 
+ 
++/* Return true if the constants used in the application of smin() following
++   smax() meet the specifications of the CLAMPS machine instruction.  */
++bool
++xtensa_match_CLAMPS_imms_p (rtx cst_max, rtx cst_min)
++{
++  int max, min;
++
++  return IN_RANGE (max = exact_log2 (-INTVAL (cst_max)), 7, 22)
++	 && IN_RANGE (min = exact_log2 (INTVAL (cst_min) + 1), 7, 22)
++	 && max == min;
++}
++
++
+ /* Implement TARGET_CANNOT_FORCE_CONST_MEM.  */
+ 
+ static bool
+diff --git a/gcc/config/xtensa/xtensa.h b/gcc/config/xtensa/xtensa.h
+index ef7f9e5d5..19d35f20a 100644
+--- a/gcc/config/xtensa/xtensa.h
++++ b/gcc/config/xtensa/xtensa.h
+@@ -50,6 +50,7 @@ along with GCC; see the file COPYING3.  If not see
+ #define TARGET_NSA		XCHAL_HAVE_NSA
+ #define TARGET_MINMAX		XCHAL_HAVE_MINMAX
+ #define TARGET_SEXT		XCHAL_HAVE_SEXT
++#define TARGET_CLAMPS		XCHAL_HAVE_CLAMPS
+ #define TARGET_BOOLEANS		XCHAL_HAVE_BOOLEANS
+ #define TARGET_HARD_FLOAT	XCHAL_HAVE_FP
+ #define TARGET_HARD_FLOAT_DIV	XCHAL_HAVE_FP_DIV
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index 30e4022ca..8fd3e006a 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -446,6 +446,43 @@
+    (set_attr "mode"	"SI")
+    (set_attr "length"	"3")])
+ 
++
++;; Signed clamp.
++
++(define_insn_and_split "*xtensa_clamps"
++  [(set (match_operand:SI 0 "register_operand" "=a")
++	(smax:SI (smin:SI (match_operand:SI 1 "register_operand" "r")
++			  (match_operand:SI 2 "const_int_operand" "i"))
++		 (match_operand:SI 3 "const_int_operand" "i")))]
++  "TARGET_CLAMPS
++   && xtensa_match_CLAMPS_imms_p (operands[3], operands[2])"
++  "#"
++  "&& 1"
++  [(set (match_dup 0)
++	(smin:SI (smax:SI (match_dup 1)
++			  (match_dup 3))
++		 (match_dup 2)))]
++  ""
++  [(set_attr "type"	"arith")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"3")])
++
++(define_insn "*xtensa_clamps"
++  [(set (match_operand:SI 0 "register_operand" "=a")
++	(smin:SI (smax:SI (match_operand:SI 1 "register_operand" "r")
++			  (match_operand:SI 2 "const_int_operand" "i"))
++		 (match_operand:SI 3 "const_int_operand" "i")))]
++  "TARGET_CLAMPS
++   && xtensa_match_CLAMPS_imms_p (operands[2], operands[3])"
++{
++  static char result[64];
++  sprintf (result, "clamps\t%%0, %%1, %d", floor_log2 (-INTVAL (operands[2])));
++  return result;
++}
++  [(set_attr "type"	"arith")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"3")])
++
+ 
+ ;; Count redundant leading sign bits and leading/trailing zeros,
+ ;; and find first bit.
+-- 
+2.30.2
+

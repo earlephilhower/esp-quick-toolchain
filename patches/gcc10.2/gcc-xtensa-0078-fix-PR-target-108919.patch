@@ -1,0 +1,184 @@
+From 15990e92b92f65aa5951d1f53d39d15cbde6c0cd Mon Sep 17 00:00:00 2001
+From: Max Filippov <jcmvbkbc@gmail.com>
+Date: Wed, 22 Feb 2023 14:17:11 -0800
+Subject: [PATCH] gcc: xtensa: fix PR target/108919
+
+gcc/
+	PR target/108919
+
+	* config/xtensa/xtensa-protos.h
+	(xtensa_prepare_expand_call): Rename to xtensa_expand_call.
+	* config/xtensa/xtensa.c (xtensa_prepare_expand_call): Rename
+	to xtensa_expand_call.
+	(xtensa_expand_call): Emit the call and add a clobber expression
+	for the static chain to it in case of windowed ABI.
+	* config/xtensa/xtensa.md (call, call_value, sibcall)
+	(sibcall_value): Call xtensa_expand_call and complete expansion
+	right after that call.
+
+gcc/testsuite/
+	* gcc.target/xtensa/pr108919.c: New test.
+---
+ gcc/config/xtensa/xtensa-protos.h          |  2 +-
+ gcc/config/xtensa/xtensa.c                 | 25 +++++++++++-
+ gcc/config/xtensa/xtensa.md                | 12 ++++--
+ gcc/testsuite/gcc.target/xtensa/pr108919.c | 46 ++++++++++++++++++++++
+ 4 files changed, 79 insertions(+), 6 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/xtensa/pr108919.c
+
+diff --git a/gcc/config/xtensa/xtensa-protos.h b/gcc/config/xtensa/xtensa-protos.h
+index 39d5a5825..74a5d93a0 100644
+--- a/gcc/config/xtensa/xtensa-protos.h
++++ b/gcc/config/xtensa/xtensa-protos.h
+@@ -53,7 +53,7 @@ extern void xtensa_expand_atomic (enum rtx_code, rtx, rtx, rtx, bool);
+ extern void xtensa_emit_loop_end (rtx_insn *, rtx *);
+ extern char *xtensa_emit_branch (bool, rtx *);
+ extern char *xtensa_emit_movcc (bool, bool, bool, rtx *);
+-extern void xtensa_prepare_expand_call (int, rtx *);
++extern void xtensa_expand_call (int, rtx *);
+ extern char *xtensa_emit_call (int, rtx *);
+ extern char *xtensa_emit_sibcall (int, rtx *);
+ extern bool xtensa_tls_referenced_p (rtx);
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index 6aea625d9..1e0820d4f 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -2173,8 +2173,10 @@ xtensa_emit_movcc (bool inverted, bool isfp, bool isbool, rtx *operands)
+ 
+ 
+ void
+-xtensa_prepare_expand_call (int callop, rtx *operands)
++xtensa_expand_call (int callop, rtx *operands)
+ {
++  rtx call;
++  rtx_insn *call_insn;
+   rtx addr = XEXP (operands[callop], 0);
+ 
+   if (flag_pic && SYMBOL_REF_P (addr)
+@@ -2192,6 +2194,27 @@ xtensa_prepare_expand_call (int callop, rtx *operands)
+ 				 Pmode);
+       XEXP (operands[callop], 0) = reg;
+     }
++
++  call = gen_rtx_CALL (VOIDmode, operands[callop], operands[callop + 1]);
++
++  if (callop)
++    call = gen_rtx_SET (operands[0], call);
++
++  call_insn = emit_call_insn (call);
++
++  if (TARGET_WINDOWED_ABI)
++    {
++      /*
++       * Windowed xtensa ABI specifies that static chain pointer is passed
++       * in memory below the caller's stack pointer, which means that the
++       * callee may clobber it if it's a non-leaf function.
++       * Add the clobber expression for the static chain to the function call
++       * expression list so that it is not assumed to be live across the call.
++       */
++      rtx clob = gen_rtx_CLOBBER (Pmode, xtensa_static_chain (NULL, false));
++      CALL_INSN_FUNCTION_USAGE (call_insn) =
++	gen_rtx_EXPR_LIST (Pmode, clob, CALL_INSN_FUNCTION_USAGE (call_insn));
++    }
+ }
+ 
+ 
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index 628b27b32..30e4022ca 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -2338,7 +2338,8 @@
+ 	 (match_operand 1 "" ""))]
+   ""
+ {
+-  xtensa_prepare_expand_call (0, operands);
++  xtensa_expand_call (0, operands);
++  DONE;
+ })
+ 
+ (define_insn "call_internal"
+@@ -2358,7 +2359,8 @@
+ 	      (match_operand 2 "" "")))]
+   ""
+ {
+-  xtensa_prepare_expand_call (1, operands);
++  xtensa_expand_call (1, operands);
++  DONE;
+ })
+ 
+ (define_insn "call_value_internal"
+@@ -2378,7 +2380,8 @@
+ 	 (match_operand 1 "" ""))]
+   "!TARGET_WINDOWED_ABI"
+ {
+-  xtensa_prepare_expand_call (0, operands);
++  xtensa_expand_call (0, operands);
++  DONE;
+ })
+ 
+ (define_insn "sibcall_internal"
+@@ -2398,7 +2401,8 @@
+ 	      (match_operand 2 "" "")))]
+   "!TARGET_WINDOWED_ABI"
+ {
+-  xtensa_prepare_expand_call (1, operands);
++  xtensa_expand_call (1, operands);
++  DONE;
+ })
+ 
+ (define_insn "sibcall_value_internal"
+diff --git a/gcc/testsuite/gcc.target/xtensa/pr108919.c b/gcc/testsuite/gcc.target/xtensa/pr108919.c
+new file mode 100644
+index 000000000..300b6fd10
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/xtensa/pr108919.c
+@@ -0,0 +1,46 @@
++/* { dg-do run } */
++/* { dg-options "-O2" } */
++
++
++#ifdef __XTENSA_CALL0_ABI__
++void __xtensa_libgcc_window_spill (void)
++{
++}
++#else
++void __xtensa_libgcc_window_spill (void);
++#endif
++
++__attribute__((noinline)) void h (void)
++{
++  __xtensa_libgcc_window_spill ();
++}
++
++int f (int u, int v)
++{
++  int a = u;
++  int s;
++
++  __attribute__((noinline,pure)) int nested1 (int b)
++  {
++      h();
++      return a + b;
++  }
++
++  __attribute__((noinline,pure)) int nested2 (int b)
++  {
++      h();
++      return a - b;
++  }
++
++  s = nested1 (v);
++  s += nested2 (v);
++  return s;
++}
++
++int main (void)
++{
++  int u = 0x12345678;
++  int v = 1;
++
++  return f (u, v) == 2 * u ? 0 : 1;
++}
+-- 
+2.30.2
+

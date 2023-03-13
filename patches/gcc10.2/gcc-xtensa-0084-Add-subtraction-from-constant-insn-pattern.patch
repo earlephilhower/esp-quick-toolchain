@@ -1,0 +1,147 @@
+From eaccaf0ca69b655e83cf540caa0d0f950f6f3fa4 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Fri, 26 May 2023 00:07:49 +0900
+Subject: [PATCH] xtensa: Add 'subtraction from constant' insn pattern
+
+This patch makes try to eliminate using temporary pseudo for
+'(minus:SI (const_int) (reg:SI))' if the addition of negative constant
+value can be emitted in a single machine instruction.
+
+    /* example */
+    int test0(int x) {
+      return 1 - x;
+    }
+    int test1(int x) {
+      return 100 - x;
+    }
+    int test2(int x) {
+      return 25600 - x;
+    }
+
+    ;; before
+    test0:
+	movi.n	a9, 1
+	sub	a2, a9, a2
+	ret.n
+    test1:
+	movi	a9, 0x64
+	sub	a2, a9, a2
+	ret.n
+    test2:
+	movi.n	a9, 0x19
+	slli	a9, a9, 10
+	sub	a2, a9, a2
+	ret.n
+
+    ;; after
+    test0:
+	addi.n	a2, a2, -1
+	neg	a2, a2
+	ret.n
+    test1:
+	addi	a2, a2, -100
+	neg	a2, a2
+	ret.n
+    test2:
+	addmi	a2, a2, -0x6400
+	neg	a2, a2
+	ret.n
+
+    gcc/ChangeLog:
+
+	* config/xtensa/xtensa-protos.h (xtensa_m1_or_1_thru_15):
+	New prototype.
+	* config/xtensa/xtensa.c (xtensa_m1_or_1_thru_15):
+	New function.
+	* config/xtensa/constraints.md (O):
+	Change to use the above function.
+	* config/xtensa/xtensa.md (*subsi3_from_const):
+	New insn_and_split pattern.
+---
+ gcc/config/xtensa/constraints.md  |  2 +-
+ gcc/config/xtensa/xtensa-protos.h |  1 +
+ gcc/config/xtensa/xtensa.c        |  7 +++++++
+ gcc/config/xtensa/xtensa.md       | 24 ++++++++++++++++++++++++
+ 4 files changed, 33 insertions(+), 1 deletion(-)
+
+diff --git a/gcc/config/xtensa/constraints.md b/gcc/config/xtensa/constraints.md
+index a2cb57000..5b8016ed0 100644
+--- a/gcc/config/xtensa/constraints.md
++++ b/gcc/config/xtensa/constraints.md
+@@ -108,7 +108,7 @@
+ (define_constraint "O"
+  "An integer constant that can be used in ADDI.N instructions."
+  (and (match_code "const_int")
+-      (match_test "ival == -1 || IN_RANGE (ival, 1, 15)")))
++      (match_test "xtensa_m1_or_1_thru_15 (ival)")))
+ 
+ (define_constraint "P"
+  "An integer constant that can be used as a mask value in an EXTUI
+diff --git a/gcc/config/xtensa/xtensa-protos.h b/gcc/config/xtensa/xtensa-protos.h
+index 59e5cd1bb..b77be70f6 100644
+--- a/gcc/config/xtensa/xtensa-protos.h
++++ b/gcc/config/xtensa/xtensa-protos.h
+@@ -27,6 +27,7 @@ extern bool xtensa_simm8x256 (HOST_WIDE_INT);
+ extern bool xtensa_simm12b (HOST_WIDE_INT);
+ extern bool xtensa_b4const_or_zero (HOST_WIDE_INT);
+ extern bool xtensa_b4constu (HOST_WIDE_INT);
++extern bool xtensa_m1_or_1_thru_15 (HOST_WIDE_INT);
+ extern bool xtensa_mask_immediate (HOST_WIDE_INT);
+ extern bool xtensa_mem_offset (unsigned, machine_mode);
+ 
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index 0f4ba7b37..712c38303 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -461,6 +461,13 @@ xtensa_b4constu (HOST_WIDE_INT v)
+ }
+ 
+ 
++bool
++xtensa_m1_or_1_thru_15 (HOST_WIDE_INT v)
++{
++  return v == -1 || IN_RANGE (v, 1, 15);
++}
++
++
+ bool
+ xtensa_mask_immediate (HOST_WIDE_INT v)
+ {
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index b697832c3..0b4cfa20a 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -216,6 +216,30 @@
+    (set_attr "mode"	"SI")
+    (set_attr "length"	"3")])
+ 
++(define_insn_and_split "*subsi3_from_const"
++  [(set (match_operand:SI 0 "register_operand" "=a")
++	(minus:SI (match_operand:SI 1 "const_int_operand" "i")
++		  (match_operand:SI 2 "register_operand" "r")))]
++  "xtensa_simm8 (-INTVAL (operands[1]))
++   || xtensa_simm8x256 (-INTVAL (operands[1]))"
++  "#"
++  "&& 1"
++  [(set (match_dup 0)
++	(plus:SI (match_dup 2)
++		 (match_dup 1)))
++   (set (match_dup 0)
++	(neg:SI (match_dup 0)))]
++{
++  operands[1] = GEN_INT (-INTVAL (operands[1]));
++}
++  [(set_attr "type"	"arith")
++   (set_attr "mode"	"SI")
++   (set (attr "length")
++	(if_then_else (match_test "TARGET_DENSITY
++				   && xtensa_m1_or_1_thru_15 (-INTVAL (operands[1]))")
++		      (const_int 5)
++		      (const_int 6)))])
++
+ (define_insn "subsf3"
+   [(set (match_operand:SF 0 "register_operand" "=f")
+ 	(minus:SF (match_operand:SF 1 "register_operand" "f")
+-- 
+2.30.2
+

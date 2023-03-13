@@ -1,0 +1,44 @@
+From f90cf6b4d8328a771cff1db3078ab2062cf95085 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Sun, 12 Mar 2023 23:14:13 +0900
+Subject: [PATCH] xtensa: Remove REG_OK_STRICT and its derivatives
+
+Because GO_IF_LEGITIMATE_ADDRESS was deprecated a long time ago
+(see commit c6c3dba931548987c78719180e30ebc863404b89).
+
+gcc/ChangeLog:
+
+	* config/xtensa/xtensa.h (REG_OK_STRICT, REG_OK_FOR_INDEX_P,
+	REG_OK_FOR_BASE_P): Remove.
+---
+ gcc/config/xtensa/xtensa.h | 11 +----------
+ 1 file changed, 1 insertion(+), 10 deletions(-)
+
+diff --git a/gcc/config/xtensa/xtensa.h b/gcc/config/xtensa/xtensa.h
+index 19d35f20a..fb06b6141 100644
+--- a/gcc/config/xtensa/xtensa.h
++++ b/gcc/config/xtensa/xtensa.h
+@@ -591,19 +591,10 @@ typedef struct xtensa_args
+ /* C expressions that are nonzero if X (assumed to be a `reg' RTX) is
+    valid for use as a base or index register.  */
+ 
+-#ifdef REG_OK_STRICT
+-#define REG_OK_STRICT_FLAG 1
+-#else
+-#define REG_OK_STRICT_FLAG 0
+-#endif
+-
+ #define BASE_REG_P(X, STRICT)						\
+-  ((!(STRICT) && REGNO (X) >= FIRST_PSEUDO_REGISTER)			\
++  ((!(STRICT) && ! HARD_REGISTER_P (X))					\
+    || REGNO_OK_FOR_BASE_P (REGNO (X)))
+ 
+-#define REG_OK_FOR_INDEX_P(X) 0
+-#define REG_OK_FOR_BASE_P(X) BASE_REG_P (X, REG_OK_STRICT_FLAG)
+-
+ /* Maximum number of registers that can appear in a valid memory address.  */
+ #define MAX_REGS_PER_ADDRESS 1
+ 
+-- 
+2.30.2
+

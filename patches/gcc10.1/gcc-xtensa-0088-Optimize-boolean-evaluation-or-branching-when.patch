@@ -1,0 +1,175 @@
+From 35268cf92a3e9fe67f871d817413d7fc9bea6325 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Sun, 4 Jun 2023 07:52:16 +0900
+Subject: [PATCH] xtensa: Optimize boolean evaluation or branching when
+ EQ/NE to INT_MIN
+
+This patch optimizes both the boolean evaluation of and the branching of
+EQ/NE against INT_MIN (-2147483648), by taking advantage of the specifi-
+cation the ABS machine instruction on Xtensa returns INT_MIN iff INT_MIN,
+otherwise non-negative value.
+
+    /* example */
+    int test0(int x) {
+      return (x == -2147483648);
+    }
+    int test1(int x) {
+      return (x != -2147483648);
+    }
+    extern void foo(void);
+    void test2(int x) {
+      if(x == -2147483648)
+        foo();
+    }
+    void test3(int x) {
+      if(x != -2147483648)
+        foo();
+    }
+
+    ;; before
+    test0:
+	movi.n	a9, -1
+	slli	a9, a9, 31
+	add.n	a2, a2, a9
+	nsau	a2, a2
+	srli	a2, a2, 5
+	ret.n
+    test1:
+	movi.n	a9, -1
+	slli	a9, a9, 31
+	add.n	a9, a2, a9
+	movi.n	a2, 1
+	moveqz	a2, a9, a9
+	ret.n
+    test2:
+	movi.n	a9, -1
+	slli	a9, a9, 31
+	bne	a2, a9, .L3
+	j.l     foo, a9
+    .L3:
+	ret.n
+    test3:
+	movi.n	a9, -1
+	slli	a9, a9, 31
+	beq	a2, a9, .L5
+	j.l	foo, a9
+    .L5:
+	ret.n
+
+    ;; after
+    test0:
+	abs	a2, a2
+	extui	a2, a2, 31, 1
+	ret.n
+    test1:
+	abs	a2, a2
+	srai	a2, a2, 31
+	addi.n	a2, a2, 1
+	ret.n
+    test2:
+	abs	a2, a2
+	bbci	a2, 31, .L3
+	j.l	foo, a9
+    .L3:
+	ret.n
+    test3:
+	abs	a2, a2
+	bbsi	a2, 31, .L5
+	j.l	foo, a9
+    .L5:
+	ret.n
+
+gcc/ChangeLog:
+
+	* config/xtensa/xtensa.md (*btrue_INT_MIN, *eqne_INT_MIN):
+	New insn_and_split patterns.
+---
+ gcc/config/xtensa/xtensa.md | 65 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 65 insertions(+)
+
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index efbb74ff9..921568e02 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -1945,6 +1945,37 @@
+                       (const_int 2)
+                       (const_int 3)))])
+ 
++(define_insn_and_split "*btrue_INT_MIN"
++  [(set (pc)
++	(if_then_else (match_operator 2 "boolean_operator"
++			[(match_operand:SI 0 "register_operand" "r")
++			 (const_int -2147483648)])
++		      (label_ref (match_operand 1 ""))
++		      (pc)))]
++  "TARGET_ABS"
++  "#"
++  "&& can_create_pseudo_p ()"
++  [(set (match_dup 3)
++	(abs:SI (match_dup 0)))
++   (set (pc)
++	(if_then_else (match_op_dup 2
++			[(zero_extract:SI (match_dup 3)
++					  (const_int 1)
++					  (match_dup 4))
++			 (const_int 0)])
++		      (label_ref (match_dup 1))
++		      (pc)))]
++{
++  operands[3] = gen_reg_rtx (SImode);
++  operands[4] = GEN_INT (BITS_BIG_ENDIAN ? 0 : 31);
++  operands[2] = gen_rtx_fmt_ee (reverse_condition (GET_CODE (operands[2])),
++				VOIDmode, XEXP (operands[2], 0),
++				const0_rtx);
++}
++  [(set_attr "type"	"jump")
++   (set_attr "mode"	"none")
++   (set_attr "length"	"6")])
++
+ (define_insn "*ubtrue"
+   [(set (pc)
+ 	(if_then_else (match_operator 3 "ubranch_operator"
+@@ -3162,6 +3193,40 @@
+ 		      (const_int 5)
+ 		      (const_int 6)))])
+ 
++
++(define_insn_and_split "*eqne_INT_MIN"
++  [(set (match_operand:SI 0 "register_operand" "=a")
++	(match_operator 2 "boolean_operator"
++		[(match_operand:SI 1 "register_operand" "r")
++		 (const_int -2147483648)]))]
++  "TARGET_ABS"
++  "#"
++  "&& 1"
++  [(set (match_dup 0)
++	(abs:SI (match_dup 1)))
++   (set (match_dup 0)
++	(match_op_dup:SI 2
++		[(match_dup 0)
++		 (const_int 31)]))
++   (match_dup 3)]
++{
++  enum rtx_code code = GET_CODE (operands[2]);
++  operands[2] = gen_rtx_fmt_ee ((code == EQ) ? LSHIFTRT : ASHIFTRT,
++				SImode, XEXP (operands[2], 0),
++				XEXP (operands[2], 1));
++  operands[3] = (code != EQ) ? gen_addsi3 (operands[0],
++					   operands[0], const1_rtx)
++			     : const0_rtx;
++}
++  [(set_attr "type"	"move")
++   (set_attr "mode"	"SI")
++   (set (attr "length")
++	(if_then_else (match_test "GET_CODE (operands[2]) == EQ")
++		      (const_int 3)
++		      (if_then_else (match_test "TARGET_DENSITY")
++				    (const_int 5)
++				    (const_int 6))))])
++
+ (define_peephole2
+   [(set (match_operand:SI 0 "register_operand")
+ 	(match_operand:SI 6 "reload_operand"))
+-- 
+2.30.2
+
