@@ -1,0 +1,38 @@
+From 625a5c311e6df32aa28214d017c65303bb5d6451 Mon Sep 17 00:00:00 2001
+From: Nikita Venkatesh <Nikita.Venkatesh@arm.com>
+Date: Wed, 26 Aug 2026 16:32:56 +0100
+Subject: [PATCH] Include <array> in ui-style.h
+
+ui-style.h uses std::array without including <array> directly.
+
+This builds successfully with GCC 8 and libstdc++ as its <tuple> header
+includes <array>. However, libc++'s <tuple> does not include <array> with
+Apple Clang 13.0.0. This causes the GDB builds to fail on macOS with:
+
+	error: implicit instantiation of undefined template
+	'std::array<unsigned char, 3>'
+
+Include <array> directly in ui-style.h rather than relying on the
+include from <tuple>.
+
+Approved-By: Andrew Burgess <aburgess@redhat.com>
+---
+ gdb/ui-style.h | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/gdb/ui-style.h b/gdb/ui-style.h
+index fc40b93709d..201a6f302d9 100644
+--- a/gdb/ui-style.h
++++ b/gdb/ui-style.h
+@@ -19,6 +19,8 @@
+ #ifndef GDB_UI_STYLE_H
+ #define GDB_UI_STYLE_H
+ 
++#include <array>
++
+ /* One of the color spaces that usually supported by terminals.  */
+ enum class color_space
+ {
+-- 
+2.55.0
+

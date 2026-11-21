@@ -1,0 +1,32 @@
+From 9e7fc6cf536e7388cc32fae950604233752f7c86 Mon Sep 17 00:00:00 2001
+From: Jason Merrill <jason@redhat.com>
+Date: Fri, 4 Apr 2025 23:27:50 -0400
+Subject: [PATCH 09/14] c++: add assert to cp_make_fname_decl
+
+In the PR118629 testcase, pushdecl_outermost_localscope was failing and
+returning error_mark_node without ever actually giving an error; in addition
+to my earlier fix for the failure, make sure failures aren't silent.
+
+gcc/cp/ChangeLog:
+
+	* decl.cc (cp_make_fname_decl): Prevent silent failure.
+---
+ gcc/cp/decl.cc | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/gcc/cp/decl.cc b/gcc/cp/decl.cc
+index 2e38d620649..d65e5aa7aaa 100644
+--- a/gcc/cp/decl.cc
++++ b/gcc/cp/decl.cc
+@@ -5290,6 +5290,8 @@ cp_make_fname_decl (location_t loc, tree id, int type_dep)
+       decl = pushdecl_outermost_localscope (decl);
+       if (decl != error_mark_node)
+ 	add_decl_expr (decl);
++      else
++	gcc_assert (seen_error ());
+     }
+   else
+     {
+-- 
+2.55.0
+

@@ -1,0 +1,38 @@
+From afa6db16e6508d8ea269557085bc7c301e824382 Mon Sep 17 00:00:00 2001
+From: Alan Modra <amodra@gmail.com>
+Date: Tue, 18 Aug 2026 15:20:28 +0930
+Subject: [PATCH] windows: remove st_dev test from SAME_INODE
+
+As reported "st_dev is the drive number, so on D: it is 3 and the
+guard passes.  Every file on the drive then compares equal to every
+other file."
+
+	* same-inode.h (SAME_INODE): Do not test st_dev on windows to
+	validate st_dev/st_ino comparison.
+---
+ include/same-inode.h | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/include/same-inode.h b/include/same-inode.h
+index 9d9049843d1..d9aea7b006f 100644
+--- a/include/same-inode.h
++++ b/include/same-inode.h
+@@ -28,11 +28,12 @@
+      && (a).st_dev == (b).st_dev)
+ # elif defined _WIN32 && ! defined __CYGWIN__
+    /* Native Windows.  */
+-   /* stat() and fstat() set st_dev and st_ino to 0 if information about
++   /* stat() and fstat() set st_ino to 0 if information about
+       the inode is not available.  */
+ #  define SAME_INODE(a, b) \
+-    (!((a).st_ino == 0 && (a).st_dev == 0) \
+-     && (a).st_ino == (b).st_ino && (a).st_dev == (b).st_dev)
++    ((a).st_ino != 0			\
++     && (a).st_ino == (b).st_ino	\
++     && (a).st_dev == (b).st_dev)
+ # else
+ #  define SAME_INODE(a, b)    \
+     ((a).st_ino == (b).st_ino \
+-- 
+2.56.0
+

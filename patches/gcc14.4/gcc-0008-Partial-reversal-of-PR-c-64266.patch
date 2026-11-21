@@ -1,0 +1,38 @@
+From 1a319a198207cce54b7338df9b3acc54c9a0ba42 Mon Sep 17 00:00:00 2001
+From: Maxim Prokhorov <prokhorov.max@outlook.com>
+Date: Wed, 30 Sep 2026 12:52:59 +0300
+Subject: [PATCH 08/14] Partial reversal of PR c++/64266
+
+ref. ddd0d18c9c07025d578f445dc9a3544020861197
+> Make __PRETTY_FUNCTION__-like functions mergeable string csts (PR c++/64266).
+
+reuse the c-decl logic and continue generating a globally recognizable section name
+target ldscript already handles the merging part, even though this is somewhat sub-optimal
+
+nb. string literal does not yet contain any section info at _fname_ generation
+front -> middle -> back end transfer (or possible de<->serialization like lto)
+would definitelly lose the extra info that may be added
+
+limited testing was done w/ tree lang flags, but those are only valid
+till the tree object exists in the same context as everything else
+---
+ gcc/cp/decl.cc | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/gcc/cp/decl.cc b/gcc/cp/decl.cc
+index 3497168b89a..2e38d620649 100644
+--- a/gcc/cp/decl.cc
++++ b/gcc/cp/decl.cc
+@@ -5280,8 +5280,7 @@ cp_make_fname_decl (location_t loc, tree id, int type_dep)
+ 
+   TREE_USED (decl) = 1;
+ 
+-  SET_DECL_VALUE_EXPR (decl, init);
+-  DECL_HAS_VALUE_EXPR_P (decl) = 1;
++  DECL_INITIAL (decl) = init;
+   /* For decl_constant_var_p.  */
+   DECL_INITIALIZED_BY_CONSTANT_EXPRESSION_P (decl) = 1;
+ 
+-- 
+2.55.0
+

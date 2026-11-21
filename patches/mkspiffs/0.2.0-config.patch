@@ -1,0 +1,13 @@
+diff --git a/spiffs/spiffs_config.h b/spiffs/spiffs_config.h
+index 2691d57..59a506e 100644
+--- a/spiffs/spiffs_config.h
++++ b/spiffs/spiffs_config.h
+@@ -199,7 +199,7 @@ typedef uint8_t u8_t;
+ // be accepted for mounting with a configuration defining the filesystem as 2
+ // megabytes.
+ #ifndef SPIFFS_USE_MAGIC_LENGTH
+-#define SPIFFS_USE_MAGIC_LENGTH         (1)
++#define SPIFFS_USE_MAGIC_LENGTH         (0)
+ #endif
+ #endif
+ 

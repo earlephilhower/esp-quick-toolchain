@@ -1,0 +1,241 @@
+From 527a092ac82424791b15c6db14bfcdcfc56e052c Mon Sep 17 00:00:00 2001
+From: Alexey Lapshin <alexey.lapshin@espressif.com>
+Date: Thu, 8 Oct 2026 13:10:53 +0700
+Subject: [PATCH] xtensa: compare SEC_MERGE literals by their merged addresses
+
+When two literals hold the same value, the Xtensa linker keeps only
+one of them.  It decided two literals were the same if they pointed
+to the same offset in the same input section.
+
+That is wrong for mergeable string sections (SEC_MERGE), because the
+linker may move strings while merging duplicates.  Two references
+that start at the same offset can end up at different addresses.
+
+Example:
+
+    .section .rodata.str1.1,"aMS",@progbits,1
+  .LC0:
+    .string "{\"v\":7}"     # offset 0, 8 bytes
+  .LC1:
+    .string "v"             # offset 8
+
+    .literal .Lend, .LC0+8  # one past the end of .LC0
+    .literal .Lkey, .LC1
+
+Both literals point to input offset 8.  If "v" is merged with a copy
+in another file, .LC1 moves but .LC0+8 does not.  The linker merged
+the two literals anyway, so code that loaded .Lkey got the address
+after "{\"v\":7}" instead of "v".
+
+Now compare the addresses the references will have after merging.
+The assembler writes references in two forms, and they move
+differently:
+
+  - "section + offset": the offset picks a string, so look up where
+    that string went.
+  - "symbol + addend": look up where the symbol went, then add the
+    addend.
+
+relocate_section and the RISC-V relaxation code compute addresses the
+same way.
+
+bfd/
+	* elf32-xtensa.c (r_reloc_merged_offset): New.
+	(literal_value_equal): Use it for SEC_MERGE sections.
+
+ld/
+	* testsuite/ld-xtensa/coalesce-merge.d,
+	* testsuite/ld-xtensa/coalesce-merge.t,
+	* testsuite/ld-xtensa/coalesce-merge-1.s,
+	* testsuite/ld-xtensa/coalesce-merge-2.s: New test.
+	* testsuite/ld-xtensa/xtensa.exp: Run it.
+---
+ bfd/elf32-xtensa.c                        | 61 ++++++++++++++++++++++-
+ ld/testsuite/ld-xtensa/coalesce-merge-1.s | 13 +++++
+ ld/testsuite/ld-xtensa/coalesce-merge-2.s | 27 ++++++++++
+ ld/testsuite/ld-xtensa/coalesce-merge.d   | 13 +++++
+ ld/testsuite/ld-xtensa/coalesce-merge.t   |  5 ++
+ ld/testsuite/ld-xtensa/xtensa.exp         |  1 +
+ 6 files changed, 118 insertions(+), 2 deletions(-)
+ create mode 100644 ld/testsuite/ld-xtensa/coalesce-merge-1.s
+ create mode 100644 ld/testsuite/ld-xtensa/coalesce-merge-2.s
+ create mode 100644 ld/testsuite/ld-xtensa/coalesce-merge.d
+ create mode 100644 ld/testsuite/ld-xtensa/coalesce-merge.t
+
+diff --git a/bfd/elf32-xtensa.c b/bfd/elf32-xtensa.c
+index d6b77c7c2c7..c9b2bf1d849 100644
+--- a/bfd/elf32-xtensa.c
++++ b/bfd/elf32-xtensa.c
+@@ -5248,6 +5248,46 @@ literal_reloc_type (const r_reloc *r_rel)
+ }
+ 
+ 
++/* Return the offset of R_REL's target in a SEC_MERGE section after
++   merging, and set *PENTITY to the input offset of the entity that
++   merging moves.  Targets in one input section all map into the same
++   representative section, so their offsets compare directly.
++
++   Gas reduces a zero addend against a local symbol to a relocation
++   against the section symbol, whose addend selects the entity.  Any
++   other "symbol + addend" is relative to the symbol: merging moves the
++   symbol and the addend is applied afterwards.  */
++
++static bfd_vma
++r_reloc_merged_offset (const r_reloc *r_rel, bfd_vma *pentity)
++{
++  unsigned long r_symndx = ELF32_R_SYM (r_rel->rela.r_info);
++  asection *sec = r_reloc_get_section (r_rel);
++  bfd_vma symval = get_elf_r_symndx_offset (r_rel->abfd, r_symndx);
++  bfd_vma addend = r_rel->target_offset - symval;
++  unsigned int symtype = STT_NOTYPE;
++
++  if (r_symndx < elf_symtab_hdr (r_rel->abfd).sh_info)
++    {
++      Elf_Internal_Sym *isymbuf = retrieve_local_syms (r_rel->abfd);
++
++      symtype = ELF_ST_TYPE (isymbuf[r_symndx].st_info);
++    }
++
++  if (symtype == STT_SECTION)
++    symval += addend;
++
++  *pentity = symval;
++  if (sec->sec_info_type == SEC_INFO_TYPE_MERGE)
++    symval = _bfd_merged_section_offset (r_rel->abfd, &sec, symval);
++
++  if (symtype != STT_SECTION)
++    symval += addend;
++
++  return symval;
++}
++
++
+ static bool
+ literal_value_equal (const literal_value *src1,
+ 		     const literal_value *src2,
+@@ -5289,9 +5329,26 @@ literal_value_equal (const literal_value *src1,
+ 	  || ((!h1 || h1->root.type != bfd_link_hash_defweak)
+ 	      && (!h2 || h2->root.type != bfd_link_hash_defweak))))
+     {
+-      if (r_reloc_get_section (&src1->r_rel)
+-	  != r_reloc_get_section (&src2->r_rel))
++      asection *sec = r_reloc_get_section (&src1->r_rel);
++
++      if (sec != r_reloc_get_section (&src2->r_rel))
+ 	return false;
++
++      /* Same input offset is not the same value once SEC_MERGE runs.  */
++      if ((sec->flags & SEC_MERGE) != 0)
++	{
++	  bfd_vma entity1, entity2;
++
++	  if (r_reloc_merged_offset (&src1->r_rel, &entity1)
++	      != r_reloc_merged_offset (&src2->r_rel, &entity2))
++	    return false;
++
++	  /* A relocatable link has not merged the section yet, and the
++	     final link may still move different entities apart.  */
++	  if (sec->sec_info_type != SEC_INFO_TYPE_MERGE
++	      && entity1 != entity2)
++	    return false;
++	}
+     }
+   else
+     {
+diff --git a/ld/testsuite/ld-xtensa/coalesce-merge-1.s b/ld/testsuite/ld-xtensa/coalesce-merge-1.s
+new file mode 100644
+index 00000000000..9726e5748ce
+--- /dev/null
++++ b/ld/testsuite/ld-xtensa/coalesce-merge-1.s
+@@ -0,0 +1,13 @@
++	.section .rodata.probe.str1.1,"aMS",@progbits,1
++.LCv:
++	.string "v"
++
++	.section .text.other,"ax",@progbits
++	.literal_position
++	.literal .Lb, .LCv
++	.align 4
++	.global other
++other:
++	entry	a1, 32
++	l32r	a2, .Lb
++	retw
+diff --git a/ld/testsuite/ld-xtensa/coalesce-merge-2.s b/ld/testsuite/ld-xtensa/coalesce-merge-2.s
+new file mode 100644
+index 00000000000..614bbf9521d
+--- /dev/null
++++ b/ld/testsuite/ld-xtensa/coalesce-merge-2.s
+@@ -0,0 +1,27 @@
++	/* "{\"v\":7}" is 8 bytes.  .LC0+8 is one past the end and, before
++	   merging, the same input offset as the following "v".  */
++	.section .rodata.probe.str1.1,"aMS",@progbits,1
++.LC0:
++	.string "{\"v\":7}"
++	.global gs
++gs:
++.LC1:
++	.string "v"
++
++	.section .text.probe,"ax",@progbits
++	.literal_position
++	.literal .Lbegin, .LC0
++	.literal .Lend, .LC0+8
++	.literal .Lkey, .LC1
++	.literal .Lkey2, .LC1
++	.literal .Lg, gs
++	.align 4
++	.global probe
++probe:
++	entry	a1, 32
++	l32r	a2, .Lbegin
++	l32r	a3, .Lend
++	l32r	a4, .Lkey
++	l32r	a5, .Lkey2
++	l32r	a6, .Lg
++	retw
+diff --git a/ld/testsuite/ld-xtensa/coalesce-merge.d b/ld/testsuite/ld-xtensa/coalesce-merge.d
+new file mode 100644
+index 00000000000..b8fc51801f9
+--- /dev/null
++++ b/ld/testsuite/ld-xtensa/coalesce-merge.d
+@@ -0,0 +1,13 @@
++#source: coalesce-merge-1.s
++#source: coalesce-merge-2.s
++#ld: -e probe -T coalesce-merge.t
++#objdump: -d
++#...
++.*<probe>:
++#...
++.*l32r	a2, 400004 .*\(400102 .*
++.*l32r	a3, 400008 .*\(40010a .*
++.*l32r	a4, 40000c .*\(400100 .*
++.*l32r	a5, 40000c .*\(400100 .*
++.*l32r	a6, 40000c .*\(400100 .*
++#...
+diff --git a/ld/testsuite/ld-xtensa/coalesce-merge.t b/ld/testsuite/ld-xtensa/coalesce-merge.t
+new file mode 100644
+index 00000000000..d2fbf54ca23
+--- /dev/null
++++ b/ld/testsuite/ld-xtensa/coalesce-merge.t
+@@ -0,0 +1,5 @@
++SECTIONS
++{
++  .text 0x400000 : { *(.literal* .text*) }
++  .rodata 0x400100 : { *(.rodata*) }
++}
+diff --git a/ld/testsuite/ld-xtensa/xtensa.exp b/ld/testsuite/ld-xtensa/xtensa.exp
+index bccd8a2b8f3..9a79402fe8b 100644
+--- a/ld/testsuite/ld-xtensa/xtensa.exp
++++ b/ld/testsuite/ld-xtensa/xtensa.exp
+@@ -25,6 +25,7 @@ if { !([istarget "xtensa*-*-*"]) } {
+ 
+ run_dump_test "call_overflow"
+ run_dump_test "coalesce"
++run_dump_test "coalesce-merge"
+ run_dump_test "diff_overflow"
+ run_dump_test "lcall"
+ run_dump_test "relax-diff1"
+-- 
+2.56.0
+

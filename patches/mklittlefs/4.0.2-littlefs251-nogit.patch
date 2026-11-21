@@ -1,0 +1,33 @@
+diff --git a/Makefile b/Makefile
+index 312535b..03d2d6e 100644
+--- a/Makefile
++++ b/Makefile
+@@ -49,7 +49,6 @@ endif
+ STRIP ?= strip
+ 
+ VERSION ?= $(shell git describe --tag)
+-LITTLEFS_VERSION := $(shell git -C littlefs describe --tags || echo "unknown")
+ BUILD_CONFIG_NAME ?= -generic
+ 
+ OBJ		:= main.o \
+@@ -68,7 +67,6 @@ BUILD_CONFIG_STR := $(shell echo $(CPPFLAGS) | sed 's- -\\\\x20-g')
+ override CPPFLAGS := \
+ 	$(INCLUDES) \
+ 	-D VERSION=\"$(VERSION)\" \
+-	-D LITTLEFS_VERSION=\"$(LITTLEFS_VERSION)\" \
+ 	-D BUILD_CONFIG=\"$(BUILD_CONFIG_STR)\" \
+ 	-D BUILD_CONFIG_NAME=\"$(BUILD_CONFIG_NAME)\" \
+ 	-D __NO_INLINE__ \
+diff --git a/main.cpp b/main.cpp
+index e15e511..8ec1873 100644
+--- a/main.cpp
++++ b/main.cpp
+@@ -789,7 +789,7 @@ public:
+             configName += 1;
+         }
+         std::cout << "Build configuration name: " << configName << std::endl;
+-        std::cout << "LittleFS ver. " << LITTLEFS_VERSION << std::endl;
++        std::cout << "LittleFS ver. " << LFS_VERSION_MAJOR << "." << LFS_VERSION_MINOR << std::endl;
+         const char* buildConfig = BUILD_CONFIG;
+         std::cout << "Extra build flags: " << (strlen(buildConfig) ? buildConfig : "(none)") << std::endl;
+         std::cout << "LittleFS configuration:" << std::endl;

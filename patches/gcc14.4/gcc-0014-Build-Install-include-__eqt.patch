@@ -1,0 +1,134 @@
+From 209ad76fba2cb87455582fe6043ef0a367923e58 Mon Sep 17 00:00:00 2001
+From: Maxim Prokhorov <prokhorov.max@outlook.com>
+Date: Sun, 27 Sep 2026 15:39:45 +0300
+Subject: [PATCH 14/14] Build & Install include/__eqt
+
+---
+ libstdc++-v3/include/Makefile.am | 19 +++++++++++++++++--
+ libstdc++-v3/include/Makefile.in | 20 ++++++++++++++++++--
+ 2 files changed, 35 insertions(+), 4 deletions(-)
+
+diff --git a/libstdc++-v3/include/Makefile.am b/libstdc++-v3/include/Makefile.am
+index d216934b447..83543a7d93e 100644
+--- a/libstdc++-v3/include/Makefile.am
++++ b/libstdc++-v3/include/Makefile.am
+@@ -22,6 +22,12 @@
+ 
+ include $(top_srcdir)/fragment.am
+ 
++# __eqt headers
++eqt_srcdir = ${glibcxx_srcdir}/include/__eqt
++eqt_builddir = ./__eqt
++eqt_headers = \
++	${eqt_srcdir}/excstring.hpp
++
+ # Standard C++ includes.
+ std_srcdir = ${glibcxx_srcdir}/include/std
+ std_builddir = .
+@@ -1115,7 +1121,7 @@ endif
+ # List of all timestamp files.  By keeping only one copy of this list, both
+ # CLEANFILES and all-local are kept up-to-date.
+ allstamped = \
+-	stamp-std stamp-bits stamp-bits-sup stamp-pstl stamp-c_base stamp-c_compatibility \
++	stamp-eqt stamp-std stamp-bits stamp-bits-sup stamp-pstl stamp-c_base stamp-c_compatibility \
+ 	stamp-backward stamp-ext stamp-pb stamp-tr1 stamp-tr2 stamp-decimal \
+ 	stamp-experimental stamp-experimental-bits stamp-debug stamp-parallel \
+ 	stamp-host
+@@ -1132,6 +1138,11 @@ allcreated = \
+ # Here are the rules for building the headers
+ all-local: ${allstamped} ${allcreated}
+ 
++stamp-eqt: ${eqt_headers}
++	@-mkdir -p ${eqt_builddir}
++	@-cd ${eqt_builddir} && $(LN_S) $? . 2>/dev/null
++	@$(STAMP) stamp-eqt
++
+ # Ignore errors from 'mkdir -p' to avoid parallel make failure on
+ # systems with broken mkdir.  Call mkdir unconditionally because
+ # it is just as cheap to avoid going through the shell.
+@@ -1499,6 +1510,9 @@ install-headers:
+ 	$(mkinstalldirs) $(DESTDIR)${gxx_include_dir}/${backward_builddir}
+ 	for file in ${backward_headers}; do \
+ 	  $(INSTALL_DATA) $${file} $(DESTDIR)${gxx_include_dir}/${backward_builddir}; done
++	$(mkinstalldirs) $(DESTDIR)${gxx_include_dir}/${eqt_builddir}
++	for file in ${eqt_headers}; do \
++	  $(INSTALL_DATA) $${file} $(DESTDIR)${gxx_include_dir}/${eqt_builddir}; done
+ 	$(mkinstalldirs) $(DESTDIR)${gxx_include_dir}/${std_builddir}
+ 	for file in ${std_headers}; do \
+ 	  $(INSTALL_DATA) $${file} $(DESTDIR)${gxx_include_dir}/${std_builddir}; done
+@@ -1591,9 +1605,10 @@ clean-local:
+ # developer tries to create them via make in the include build
+ # directory. (This is more of an example of how this kind of rule can
+ # be made.)
+-.PRECIOUS: $(std_headers) $(c_base_headers) $(tr1_headers) $(tr2_headers)
++.PRECIOUS: $(eqt_headers) $(std_headers) $(c_base_headers) $(tr1_headers) $(tr2_headers)
+ 	   $(decimal_headers) $(ext_headers) $(experimental_headers)
+ 	   $(experimental_bits_headers)
++$(eqt_headers): ; @:
+ $(std_headers): ; @:
+ $(c_base_headers): ; @:
+ $(tr1_headers): ; @:
+diff --git a/libstdc++-v3/include/Makefile.in b/libstdc++-v3/include/Makefile.in
+index 0b0516b32e7..66da896c55c 100644
+--- a/libstdc++-v3/include/Makefile.in
++++ b/libstdc++-v3/include/Makefile.in
+@@ -380,6 +380,12 @@ WARN_CXXFLAGS = \
+ # -I/-D flags to pass when compiling.
+ AM_CPPFLAGS = $(GLIBCXX_INCLUDES) $(CPPFLAGS)
+ 
++# __eqt headers
++eqt_srcdir = ${glibcxx_srcdir}/include/__eqt
++eqt_builddir = ./__eqt
++eqt_headers = \
++	${eqt_srcdir}/excstring.hpp
++
+ # Standard C++ includes.
+ std_srcdir = ${glibcxx_srcdir}/include/std
+ std_builddir = .
+@@ -1442,7 +1448,7 @@ PCHFLAGS = -x c++-header -nostdinc++ $(CXXFLAGS) $(VTV_PCH_CXXFLAGS)
+ # List of all timestamp files.  By keeping only one copy of this list, both
+ # CLEANFILES and all-local are kept up-to-date.
+ allstamped = \
+-	stamp-std stamp-bits stamp-bits-sup stamp-pstl stamp-c_base stamp-c_compatibility \
++	stamp-eqt stamp-std stamp-bits stamp-bits-sup stamp-pstl stamp-c_base stamp-c_compatibility \
+ 	stamp-backward stamp-ext stamp-pb stamp-tr1 stamp-tr2 stamp-decimal \
+ 	stamp-experimental stamp-experimental-bits stamp-debug stamp-parallel \
+ 	stamp-host
+@@ -1630,6 +1636,12 @@ uninstall-am:
+ # Here are the rules for building the headers
+ all-local: ${allstamped} ${allcreated}
+ 
++# __eqt stamp
++stamp-eqt: ${eqt_headers}
++	@-mkdir -p ${eqt_builddir}
++	@-cd ${eqt_builddir} && $(LN_S) $? . 2>/dev/null
++	@$(STAMP) stamp-eqt
++
+ # Ignore errors from 'mkdir -p' to avoid parallel make failure on
+ # systems with broken mkdir.  Call mkdir unconditionally because
+ # it is just as cheap to avoid going through the shell.
+@@ -1971,6 +1983,9 @@ install-headers:
+ 	$(mkinstalldirs) $(DESTDIR)${gxx_include_dir}/${backward_builddir}
+ 	for file in ${backward_headers}; do \
+ 	  $(INSTALL_DATA) $${file} $(DESTDIR)${gxx_include_dir}/${backward_builddir}; done
++	$(mkinstalldirs) $(DESTDIR)${gxx_include_dir}/${eqt_builddir}
++	for file in ${eqt_headers}; do \
++	  $(INSTALL_DATA) $${file} $(DESTDIR)${gxx_include_dir}/${eqt_builddir}; done
+ 	$(mkinstalldirs) $(DESTDIR)${gxx_include_dir}/${std_builddir}
+ 	for file in ${std_headers}; do \
+ 	  $(INSTALL_DATA) $${file} $(DESTDIR)${gxx_include_dir}/${std_builddir}; done
+@@ -2058,9 +2073,10 @@ clean-local:
+ # developer tries to create them via make in the include build
+ # directory. (This is more of an example of how this kind of rule can
+ # be made.)
+-.PRECIOUS: $(std_headers) $(c_base_headers) $(tr1_headers) $(tr2_headers)
++.PRECIOUS: $(eqt_headers) $(std_headers) $(c_base_headers) $(tr1_headers) $(tr2_headers)
+ 	   $(decimal_headers) $(ext_headers) $(experimental_headers)
+ 	   $(experimental_bits_headers)
++$(eqt_headers): ; @:
+ $(std_headers): ; @:
+ $(c_base_headers): ; @:
+ $(tr1_headers): ; @:
+-- 
+2.55.0
+

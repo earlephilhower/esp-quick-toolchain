@@ -1,0 +1,18 @@
+# std/variant declared weirdly
+# TODO GCC15 stores __throw_bad_variant_access strings nearby
+#      ref. 0dbc588acaa27a3a56bc9173bd577e1293f10046
+language: Cpp
+
+utils:
+  default-value:
+    kind: string_literal
+    inside:
+      kind: field_declaration
+      has:
+        kind: pointer_declarator
+        has:
+          kind: field_identifier
+          regex: ^_M_reason$
+
+rule:
+  matches: default-value

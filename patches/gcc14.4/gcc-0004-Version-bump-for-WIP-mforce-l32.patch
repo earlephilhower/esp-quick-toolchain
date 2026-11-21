@@ -1,0 +1,256 @@
+From de3f96e3852b29a69be30cfa0b7d3f99d6d48305 Mon Sep 17 00:00:00 2001
+From: Maxim Prokhorov <prokhorov.max@outlook.com>
+Date: Mon, 28 Apr 2025 13:39:25 +0300
+Subject: [PATCH 04/14] Version bump for WIP: -mforce-l32
+
+Rebased from
+https://github.com/jcmvbkbc/gcc-xtensa/compare/xtensa-force-l32-12.1
+https://github.com/jcmvbkbc/gcc-xtensa/commit/ab117bd279248aca6de8a590b3d433d50a0be9be
+
+For the releases/gcc-14.4.0
+---
+ gcc/config/xtensa/constraints.md | 10 ++++++
+ gcc/config/xtensa/xtensa.cc      | 53 +++++++++++++++++++++++++++++++-
+ gcc/config/xtensa/xtensa.md      | 49 ++++++++++++++++-------------
+ gcc/config/xtensa/xtensa.opt     |  4 +++
+ 4 files changed, 93 insertions(+), 23 deletions(-)
+
+diff --git a/gcc/config/xtensa/constraints.md b/gcc/config/xtensa/constraints.md
+index d855fb8d605..b812222c381 100644
+--- a/gcc/config/xtensa/constraints.md
++++ b/gcc/config/xtensa/constraints.md
+@@ -139,3 +139,13 @@
+  "Memory that is not in a literal pool."
+  (and (match_code "mem")
+       (match_test "! constantpool_mem_p (op)")))
++
++(define_memory_constraint "ZY"
++ "Memory that is not in a literal pool w/o forced L32"
++ (and (match_code "mem")
++      (match_test "!TARGET_FORCE_L32 && !constantpool_mem_p (op)")))
++
++(define_memory_constraint "ZZ"
++ "Memory that is not in a literal pool w/ forced L32"
++ (and (match_code "mem")
++      (match_test "TARGET_FORCE_L32 && !constantpool_mem_p (op)")))
+diff --git a/gcc/config/xtensa/xtensa.cc b/gcc/config/xtensa/xtensa.cc
+index 590715fb605..4e3be3c39da 100644
+--- a/gcc/config/xtensa/xtensa.cc
++++ b/gcc/config/xtensa/xtensa.cc
+@@ -2344,7 +2344,8 @@ xtensa_legitimate_address_p (machine_mode mode, rtx addr, bool strict,
+     return true;
+ 
+   /* Check for "register + offset" addressing.  */
+-  if (GET_CODE (addr) == PLUS)
++  if (GET_CODE (addr) == PLUS &&
++      (!TARGET_FORCE_L32 || (mode != HImode && mode != QImode)))
+     {
+       rtx xplus0 = XEXP (addr, 0);
+       rtx xplus1 = XEXP (addr, 1);
+@@ -3005,6 +3006,8 @@ printx (FILE *file, signed int val)
+     fprintf (file, "0x%x", val);
+ }
+ 
++static void
++output_address_base (FILE *file, rtx addr);
+ 
+ void
+ print_operand (FILE *file, rtx x, int letter)
+@@ -3014,6 +3017,13 @@ print_operand (FILE *file, rtx x, int letter)
+ 
+   switch (letter)
+     {
++    case 'B':
++      if (GET_CODE (x) == MEM)
++	output_address_base (file, XEXP (x, 0));
++      else
++	output_operand_lossage ("invalid %%B value");
++      break;
++
+     case 'D':
+       if (GET_CODE (x) == REG || GET_CODE (x) == SUBREG)
+ 	fprintf (file, "%s", reg_names[xt_true_regnum (x) + 1]);
+@@ -3152,6 +3162,47 @@ print_operand (FILE *file, rtx x, int letter)
+     }
+ }
+ 
++static void
++output_address_base (FILE *file, rtx addr)
++{
++  switch (GET_CODE (addr))
++    {
++    default:
++      fatal_insn ("invalid address", addr);
++      break;
++
++    case REG:
++      fprintf (file, "%s", reg_names [REGNO (addr)]);
++      break;
++
++    case PLUS:
++      {
++	rtx reg = (rtx)0;
++	rtx offset = (rtx)0;
++	rtx arg0 = XEXP (addr, 0);
++	rtx arg1 = XEXP (addr, 1);
++
++	if (GET_CODE (arg0) == REG)
++	  {
++	    reg = arg0;
++	    offset = arg1;
++	  }
++	else if (GET_CODE (arg1) == REG)
++	  {
++	    reg = arg1;
++	    offset = arg0;
++	  }
++	else
++	  fatal_insn ("no register in address", addr);
++
++	if (CONSTANT_P (offset))
++	  fprintf (file, "%s", reg_names [REGNO (reg)]);
++	else
++	  fatal_insn ("address offset not a constant", addr);
++      }
++      break;
++    }
++}
+ 
+ /* A C compound statement to output to stdio stream STREAM the
+    assembler syntax for an instruction operand that is a memory
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index ff3ae385909..aaf5a530178 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -944,26 +944,28 @@
+ ;; Zero-extend instructions.
+ 
+ (define_insn "zero_extendhisi2"
+-  [(set (match_operand:SI 0 "register_operand" "=a,a")
+-	(zero_extend:SI (match_operand:HI 1 "nonimmed_operand" "r,U")))]
++  [(set (match_operand:SI 0 "register_operand" "=a,a,a")
++	(zero_extend:SI (match_operand:HI 1 "nonimmed_operand" "r,ZY,ZZ")))]
+   ""
+   "@
+    extui\t%0, %1, 0, 16
+-   %v1l16ui\t%0, %1"
+-  [(set_attr "type"	"arith,load")
++   %v1l16ui\t%0, %1
++   ssa8l\t%B1 ; srli\t%0, %B1, 2 ; slli\t%0, %0, 2 ; %v1l32i\t%0, %0, 0 ; srl\t%0, %0 ; extui\t%0, %0, 0, 16"
++  [(set_attr "type"	"arith,load,load")
+    (set_attr "mode"	"SI")
+-   (set_attr "length"	"3,3")])
++   (set_attr "length"	"3,3,18")])
+ 
+ (define_insn "zero_extendqisi2"
+-  [(set (match_operand:SI 0 "register_operand" "=a,a")
+-	(zero_extend:SI (match_operand:QI 1 "nonimmed_operand" "r,U")))]
++  [(set (match_operand:SI 0 "register_operand" "=a,a,a")
++	(zero_extend:SI (match_operand:QI 1 "nonimmed_operand" "r,ZY,ZZ")))]
+   ""
+   "@
+    extui\t%0, %1, 0, 8
+-   %v1l8ui\t%0, %1"
+-  [(set_attr "type"	"arith,load")
++   %v1l8ui\t%0, %1
++   ssa8l\t%B1 ; srli\t%0, %B1, 2 ; slli\t%0, %0, 2 ; %v1l32i\t%0, %0, 0 ; srl\t%0, %0 ; extui\t%0, %0, 0, 8"
++  [(set_attr "type"	"arith,load,load")
+    (set_attr "mode"	"SI")
+-   (set_attr "length"	"3,3")])
++   (set_attr "length"	"3,3,18")])
+ 
+ 
+ ;; Sign-extend instructions.
+@@ -981,15 +983,16 @@
+ })
+ 
+ (define_insn "extendhisi2_internal"
+-  [(set (match_operand:SI 0 "register_operand" "=B,a")
+-	(sign_extend:SI (match_operand:HI 1 "sext_operand" "r,U")))]
++  [(set (match_operand:SI 0 "register_operand" "=B,a,a")
++	(sign_extend:SI (match_operand:HI 1 "sext_operand" "r,r,ZY")))]
+   ""
+   "@
+    sext\t%0, %1, 15
++   slli\t%0, %1, 16 ; srai\t%0, %0, 16
+    %v1l16si\t%0, %1"
+-  [(set_attr "type"	"arith,load")
++  [(set_attr "type"	"arith,arith,load")
+    (set_attr "mode"	"SI")
+-   (set_attr "length"	"3,3")])
++   (set_attr "length"	"3,6,3")])
+ 
+ (define_expand "extendqisi2"
+   [(set (match_operand:SI 0 "register_operand" "")
+@@ -1348,8 +1351,8 @@
+ })
+ 
+ (define_insn "movhi_internal"
+-  [(set (match_operand:HI 0 "nonimmed_operand" "=D,D,a,a,a,a,a,U,*a,*A")
+-	(match_operand:HI 1 "move_operand" "M,d,r,I,Y,T,U,r,*A,*r"))]
++  [(set (match_operand:HI 0 "nonimmed_operand" "=D,D,a,a,a,a,a,a,U,*a,*A")
++	(match_operand:HI 1 "move_operand" "M,d,r,I,Y,T,ZY,ZZ,r,*A,*r"))]
+   "xtensa_valid_move (HImode, operands)"
+   "@
+    movi.n\t%0, %x1
+@@ -1359,12 +1362,13 @@
+    movi\t%0, %1
+    %v1l32r\t%0, %1
+    %v1l16ui\t%0, %1
++   ssa8l\t%B1 ; srli\t%0, %B1, 2 ; slli\t%0, %0, 2 ; %v1l32i\t%0, %0, 0 ; srl\t%0, %0 ; extui\t%0, %0, 0, 16
+    %v0s16i\t%1, %0
+    rsr\t%0, ACCLO
+    wsr\t%1, ACCLO"
+-  [(set_attr "type"	"move,move,move,move,move,load,load,store,rsr,wsr")
++  [(set_attr "type"	"move,move,move,move,move,load,load,load,store,rsr,wsr")
+    (set_attr "mode"	"HI")
+-   (set_attr "length"	"2,2,3,3,3,3,3,3,3,3")])
++   (set_attr "length"	"2,2,3,3,3,3,3,18,3,3,3")])
+ 
+ ;; 8-bit Integer moves
+ 
+@@ -1378,8 +1382,8 @@
+ })
+ 
+ (define_insn "movqi_internal"
+-  [(set (match_operand:QI 0 "nonimmed_operand" "=D,D,a,a,a,U,*a,*A")
+-	(match_operand:QI 1 "move_operand" "M,d,r,I,U,r,*A,*r"))]
++  [(set (match_operand:QI 0 "nonimmed_operand" "=D,D,a,a,a,a,U,*a,*A")
++	(match_operand:QI 1 "move_operand" "M,d,r,I,ZY,ZZ,r,*A,*r"))]
+   "xtensa_valid_move (QImode, operands)"
+   "@
+    movi.n\t%0, %x1
+@@ -1387,12 +1391,13 @@
+    mov\t%0, %1
+    movi\t%0, %x1
+    %v1l8ui\t%0, %1
++   ssa8l\t%B1 ; srli\t%0, %B1, 2 ; slli\t%0, %0, 2 ; %v1l32i\t%0, %0, 0 ; srl\t%0, %0 ; extui\t%0, %0, 0, 8
+    %v0s8i\t%1, %0
+    rsr\t%0, ACCLO
+    wsr\t%1, ACCLO"
+-  [(set_attr "type"	"move,move,move,move,load,store,rsr,wsr")
++  [(set_attr "type"	"move,move,move,move,load,load,store,rsr,wsr")
+    (set_attr "mode"	"QI")
+-   (set_attr "length"	"2,2,3,3,3,3,3,3")])
++   (set_attr "length"	"2,2,3,3,3,18,3,3,3")])
+ 
+ ;; Sub-word reloads from the constant pool.
+ 
+diff --git a/gcc/config/xtensa/xtensa.opt b/gcc/config/xtensa/xtensa.opt
+index b653e99d189..df4e7779320 100644
+--- a/gcc/config/xtensa/xtensa.opt
++++ b/gcc/config/xtensa/xtensa.opt
+@@ -57,6 +57,10 @@ mserialize-volatile
+ Target Mask(SERIALIZE_VOLATILE)
+ -mno-serialize-volatile	Do not serialize volatile memory references with MEMW instructions.
+ 
++mforce-l32
++Target Mask(FORCE_L32)
++Use l32i to access 1- and 2-byte quantities in memory instead of l8ui/l16ui
++
+ TargetVariable
+ int xtensa_windowed_abi = -1
+ 
+-- 
+2.55.0
+

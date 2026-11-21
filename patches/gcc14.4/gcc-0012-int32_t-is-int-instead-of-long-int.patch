@@ -1,0 +1,25 @@
+From ea5679a8f57fe0eb6f8160b07aa50fa6e21e5ff5 Mon Sep 17 00:00:00 2001
+From: earlephilhower/esp-quick-toolchain <woot>
+Date: Sat, 26 Sep 2026 14:47:20 +0300
+Subject: [PATCH 12/14] int32_t is int instead of long int
+
+---
+ gcc/config/xtensa/xtensa.h | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/gcc/config/xtensa/xtensa.h b/gcc/config/xtensa/xtensa.h
+index 470eec85bdb..a02c488bc81 100644
+--- a/gcc/config/xtensa/xtensa.h
++++ b/gcc/config/xtensa/xtensa.h
+@@ -783,3 +783,8 @@ typedef struct xtensa_args
+ 	callx0\ta0\n" \
+ 	TEXT_SECTION_ASM_OP);
+ #endif
++
++
++/* Use int, instead of long int, for int32_t and uint32_t.  */
++#undef STDINT_LONG32
++#define STDINT_LONG32 0
+-- 
+2.55.0
+

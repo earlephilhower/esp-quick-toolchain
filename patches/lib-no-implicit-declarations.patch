@@ -1,0 +1,13 @@
+diff --git a/newlib/libc/posix/isatty.c b/newlib/libc/posix/isatty.c
+index 8a6740a55..78738a890 100644
+--- a/newlib/libc/posix/isatty.c
++++ b/newlib/libc/posix/isatty.c
+@@ -3,6 +3,8 @@
+ #include <unistd.h>
+ #include <reent.h>
+ 
++extern int _isatty (int);
++
+ int
+ isatty (int fd)
+ {

@@ -1,0 +1,86 @@
+From 1d667dd7c22b69339def2410f165a325fd1df64b Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Wed, 23 Oct 2024 11:31:15 +0900
+Subject: [PATCH 01/14] xtensa: Define TARGET_DIFFERENT_ADDR_DISPLACEMENT_P
+ target hook
+
+In commit bc5a9dab55d13f888a3cdd150c8cf5c2244f35e0 ("gcc: xtensa: reorder
+movsi_internal patterns for better code generation during LRA"),  the
+instruction order in "movsi_internal" MD definition was changed to make LRA
+use load/store instructions with larger memory address displacements, but as
+a side effect, it now uses the larger displacements (ie., the larger
+instructions) even outside of reload operations.
+
+The underlying problem is that LRA assumes by default that there is only one
+maximal legitimate displacement for the same address structure, meaning that
+it has no choice but to use the first load/store instruction it finds.
+
+To fix this, define TARGET_DIFFERENT_ADDR_DISPLACEMENT_P hook to always
+return true.
+
+gcc/ChangeLog:
+
+	* config/xtensa/xtensa.cc (TARGET_DIFFERENT_ADDR_DISPLACEMENT_P):
+	Add new target hook to always return true.
+	* config/xtensa/xtensa.md (movsi_internal):
+	Revert the previous changes.
+---
+ gcc/config/xtensa/xtensa.cc |  3 +++
+ gcc/config/xtensa/xtensa.md | 12 ++++++------
+ 2 files changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/gcc/config/xtensa/xtensa.cc b/gcc/config/xtensa/xtensa.cc
+index 9beac932467..2d6cf9bd18b 100644
+--- a/gcc/config/xtensa/xtensa.cc
++++ b/gcc/config/xtensa/xtensa.cc
+@@ -356,6 +356,9 @@ static rtx xtensa_delegitimize_address (rtx);
+ #undef TARGET_MAX_ANCHOR_OFFSET
+ #define TARGET_MAX_ANCHOR_OFFSET 1020
+ 
++#undef TARGET_DIFFERENT_ADDR_DISPLACEMENT_P
++#define TARGET_DIFFERENT_ADDR_DISPLACEMENT_P hook_bool_void_true
++
+ struct gcc_target targetm = TARGET_INITIALIZER;
+ 
+ 
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index fbe40ec671a..36e25073537 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -1284,15 +1284,13 @@
+ })
+ 
+ (define_insn "movsi_internal"
+-  [(set (match_operand:SI 0 "nonimmed_operand" "=D,D,D,a,U,D,R,R,a,q,a,a,W,a,*a,*A")
+-	(match_operand:SI 1 "move_operand" "M,D,d,U,r,R,D,d,r,r,I,Y,i,T,*A,*r"))]
++  [(set (match_operand:SI 0 "nonimmed_operand" "=D,D,D,D,R,R,a,q,a,a,W,a,a,U,*a,*A")
++	(match_operand:SI 1 "move_operand" "M,D,d,R,D,d,r,r,I,Y,i,T,U,r,*A,*r"))]
+   "xtensa_valid_move (SImode, operands)"
+   "@
+    movi.n\t%0, %x1
+    mov.n\t%0, %1
+    mov.n\t%0, %1
+-   %v1l32i\t%0, %1
+-   %v0s32i\t%1, %0
+    %v1l32i.n\t%0, %1
+    %v0s32i.n\t%1, %0
+    %v0s32i.n\t%1, %0
+@@ -1302,11 +1300,13 @@
+    movi\t%0, %1
+    const16\t%0, %t1\;const16\t%0, %b1
+    %v1l32r\t%0, %1
++   %v1l32i\t%0, %1
++   %v0s32i\t%1, %0
+    rsr\t%0, ACCLO
+    wsr\t%1, ACCLO"
+-  [(set_attr "type"	"move,move,move,load,store,load,store,store,move,move,move,move,move,load,rsr,wsr")
++  [(set_attr "type"	"move,move,move,load,store,store,move,move,move,move,move,load,load,store,rsr,wsr")
+    (set_attr "mode"	"SI")
+-   (set_attr "length"	"2,2,2,3,3,2,2,2,3,3,3,3,6,3,3,3")])
++   (set_attr "length"	"2,2,2,2,2,2,3,3,3,3,6,3,3,3,3,3")])
+ 
+ (define_split
+   [(set (match_operand:SHI 0 "register_operand")
+-- 
+2.55.0
+

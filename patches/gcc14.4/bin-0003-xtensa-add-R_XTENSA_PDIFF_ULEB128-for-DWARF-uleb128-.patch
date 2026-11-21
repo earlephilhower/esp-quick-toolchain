@@ -1,0 +1,636 @@
+From e7f5dea03ccd32c3e62db0059494319b786bbe88 Mon Sep 17 00:00:00 2001
+From: Alexey Lapshin <alexey.lapshin@espressif.com>
+Date: Mon, 3 Aug 2026 17:41:31 +0700
+Subject: [PATCH 3/3] xtensa: add R_XTENSA_PDIFF_ULEB128 for DWARF uleb128
+ diffs
+
+DWARF 5 location and range lists encode many same-section symbol
+differences as uleb128.  Today the assembler must mark all covered code
+no_transform so linker relaxation cannot change those differences, which
+effectively disables relaxation for nearly every function that has DWARF 5
+debug info.
+
+Emit R_XTENSA_PDIFF_ULEB128 instead: like R_XTENSA_PDIFF32 the difference
+stays in the section contents and the reloc records the subtracted symbol,
+but the assembler pads the uleb128 to a fixed width (minimal encoding plus
+one spare byte) and the linker rewrites the value in place after
+relaxation.
+
+sleb128 and cross-section differences still fall back to no_transform.
+Growth that needs more than the reserved spare byte is reported as a
+relocation overflow.
+
+bfd/
+	* bfd-in2.h: Regenerated.
+	* elf32-xtensa.c (elf_howto_table): New entry for
+	R_XTENSA_PDIFF_ULEB128.
+	(elf_xtensa_reloc_type_lookup, elf_xtensa_do_reloc): Handle it.
+	(relax_section): Rewrite padded uleb128 differences in place.
+	* libbfd.h (bfd_reloc_code_real_names): Add
+	BFD_RELOC_XTENSA_PDIFF_ULEB128.
+	* reloc.c: Document BFD_RELOC_XTENSA_PDIFF_ULEB128.
+
+binutils/
+	* readelf.c (is_none_reloc): Recognize R_XTENSA_PDIFF_ULEB128.
+
+gas/
+	* write.c (cvt_frag_to_fill): Pad leb128 frags to the reserved
+	size when md_leb128_frag_size grew them.
+	(relax_segment): Call md_leb128_frag_size if defined.
+	* config/tc-xtensa.h (xtensa_symfield_type): Add
+	has_leb128_diff_reloc.
+	(md_leb128_frag_size): Define.
+	* config/tc-xtensa.c (xtensa_md_finish): Insert uleb128 fixes.
+	(xtensa_insert_uleb128_fixes, xtensa_leb128_frag_size): New.
+	(xtensa_mark_difference_of_two_symbols): Skip relocated diffs.
+	(md_apply_fix): Ignore BFD_RELOC_XTENSA_PDIFF_ULEB128.
+	* testsuite/gas/xtensa/pdiff-uleb128.s: New test.
+	* testsuite/gas/xtensa/pdiff-uleb128.d: New test.
+	* testsuite/gas/xtensa/pdiff-uleb128-norelax.d: New test.
+
+include/
+	* elf/xtensa.h (elf_xtensa_reloc_type): Add
+	R_XTENSA_PDIFF_ULEB128.
+
+ld/
+	* testsuite/ld-xtensa/relax-uleb128.s: New test.
+	* testsuite/ld-xtensa/relax-uleb128.d: New test.
+	* testsuite/ld-xtensa/relax-uleb128-2.s: New test.
+	* testsuite/ld-xtensa/relax-uleb128-2.d: New test.
+	* testsuite/ld-xtensa/xtensa.exp: Run them.
+---
+ bfd/bfd-in2.h                                 | 10 +++
+ bfd/elf32-xtensa.c                            | 80 +++++++++++++++++
+ bfd/libbfd.h                                  |  1 +
+ bfd/reloc.c                                   | 12 +++
+ binutils/readelf.c                            |  3 +-
+ gas/config/tc-xtensa.c                        | 90 ++++++++++++++++++-
+ gas/config/tc-xtensa.h                        |  5 ++
+ .../gas/xtensa/pdiff-uleb128-norelax.d        | 20 +++++
+ gas/testsuite/gas/xtensa/pdiff-uleb128.d      | 12 +++
+ gas/testsuite/gas/xtensa/pdiff-uleb128.s      |  7 ++
+ gas/write.c                                   | 20 +++++
+ include/elf/xtensa.h                          |  3 +
+ ld/testsuite/ld-xtensa/relax-uleb128-2.d      | 12 +++
+ ld/testsuite/ld-xtensa/relax-uleb128-2.s      | 18 ++++
+ ld/testsuite/ld-xtensa/relax-uleb128.d        | 11 +++
+ ld/testsuite/ld-xtensa/relax-uleb128.s        | 16 ++++
+ ld/testsuite/ld-xtensa/xtensa.exp             |  2 +
+ 17 files changed, 318 insertions(+), 4 deletions(-)
+ create mode 100644 gas/testsuite/gas/xtensa/pdiff-uleb128-norelax.d
+ create mode 100644 gas/testsuite/gas/xtensa/pdiff-uleb128.d
+ create mode 100644 gas/testsuite/gas/xtensa/pdiff-uleb128.s
+ create mode 100644 ld/testsuite/ld-xtensa/relax-uleb128-2.d
+ create mode 100644 ld/testsuite/ld-xtensa/relax-uleb128-2.s
+ create mode 100644 ld/testsuite/ld-xtensa/relax-uleb128.d
+ create mode 100644 ld/testsuite/ld-xtensa/relax-uleb128.s
+
+diff --git a/bfd/bfd-in2.h b/bfd/bfd-in2.h
+index 459e85677c2..5322a198036 100644
+--- a/bfd/bfd-in2.h
++++ b/bfd/bfd-in2.h
+@@ -6171,6 +6171,16 @@ enum bfd_reloc_code_real
+   BFD_RELOC_XTENSA_NDIFF16,
+   BFD_RELOC_XTENSA_NDIFF32,
+ 
++  /* Xtensa relocation to mark a positive difference of two local symbols
++     encoded as an unsigned LEB128 value.  This works like
++     BFD_RELOC_XTENSA_PDIFF32, but the linker rewrites the difference in
++     place using the number of bytes the assembler originally emitted, so
++     that the size of the containing section never changes.  Without it the
++     assembler would have to inhibit linker relaxation of all code covered
++     by such a difference, which DWARF 5 location and range lists produce
++     for virtually every function.  */
++  BFD_RELOC_XTENSA_PDIFF_ULEB128,
++
+   /* 8 bit signed offset in (ix+d) or (iy+d).  */
+   BFD_RELOC_Z80_DISP8,
+ 
+diff --git a/bfd/elf32-xtensa.c b/bfd/elf32-xtensa.c
+index 718a38f0fd5..c3c51f17ace 100644
+--- a/bfd/elf32-xtensa.c
++++ b/bfd/elf32-xtensa.c
+@@ -346,6 +346,8 @@ static reloc_howto_type elf_howto_table[] =
+ 	 bfd_elf_xtensa_reloc, "R_XTENSA_NDIFF16", false, 0, 0xffff, false),
+   HOWTO (R_XTENSA_NDIFF32, 0, 4, 32, false, 0, complain_overflow_bitfield,
+ 	 bfd_elf_xtensa_reloc, "R_XTENSA_NDIFF32", false, 0, 0xffffffff, false),
++  HOWTO (R_XTENSA_PDIFF_ULEB128, 0, 0, 0, false, 0, complain_overflow_dont,
++	 bfd_elf_xtensa_reloc, "R_XTENSA_PDIFF_ULEB128", false, 0, 0, false),
+ };
+ 
+ #if DEBUG_GEN_RELOC
+@@ -409,6 +411,10 @@ elf_xtensa_reloc_type_lookup (bfd *abfd ATTRIBUTE_UNUSED,
+       TRACE ("BFD_RELOC_XTENSA_NDIFF32");
+       return &elf_howto_table[(unsigned) R_XTENSA_NDIFF32 ];
+ 
++    case BFD_RELOC_XTENSA_PDIFF_ULEB128:
++      TRACE ("BFD_RELOC_XTENSA_PDIFF_ULEB128");
++      return &elf_howto_table[(unsigned) R_XTENSA_PDIFF_ULEB128 ];
++
+     case BFD_RELOC_XTENSA_RTLD:
+       TRACE ("BFD_RELOC_XTENSA_RTLD");
+       return &elf_howto_table[(unsigned) R_XTENSA_RTLD ];
+@@ -1946,6 +1952,7 @@ elf_xtensa_do_reloc (reloc_howto_type *howto,
+     case R_XTENSA_NDIFF8:
+     case R_XTENSA_NDIFF16:
+     case R_XTENSA_NDIFF32:
++    case R_XTENSA_PDIFF_ULEB128:
+     case R_XTENSA_TLS_FUNC:
+     case R_XTENSA_TLS_ARG:
+     case R_XTENSA_TLS_CALL:
+@@ -9708,6 +9715,79 @@ relax_section (bfd *abfd, asection *sec, struct bfd_link_info *link_info)
+ 	      r_reloc new_reloc;
+ 	      target_sec = translate_reloc (&r_rel, &new_reloc, target_sec);
+ 
++	      if (r_type == R_XTENSA_PDIFF_ULEB128)
++		{
++		  bfd_vma diff_value, new_end_offset;
++		  unsigned int len, new_len = 0;
++		  bfd_byte *p, *q, *endp;
++
++		  if (sec_size <= old_source_offset)
++		    {
++		      (*link_info->callbacks->reloc_dangerous)
++			(link_info, _("invalid relocation address"),
++			 abfd, sec, old_source_offset);
++		      goto error_return;
++		    }
++
++		  /* The value is read back from the section contents, so
++		     it must not be trusted to be a well formed uleb128
++		     that ends before the end of the section.  */
++		  p = q = &contents[old_source_offset];
++		  diff_value = _bfd_safe_read_leb128 (abfd, &q, false,
++						      contents + sec_size);
++		  len = q - p;
++		  if (len == 0 || (q[-1] & 0x80) != 0)
++		    {
++		      (*link_info->callbacks->reloc_dangerous)
++			(link_info, _("invalid uleb128 difference"),
++			 abfd, sec, old_source_offset);
++		      goto error_return;
++		    }
++
++		  new_end_offset = offset_with_removed_text_map
++		    (&target_relax_info->action_list,
++		     r_rel.target_offset + diff_value);
++		  if (new_end_offset < new_reloc.target_offset)
++		    {
++		      (*link_info->callbacks->reloc_dangerous)
++			(link_info, _("uleb128 difference is negative after "
++				      "relaxation"),
++			 abfd, sec, old_source_offset);
++		      goto error_return;
++		    }
++		  diff_value = new_end_offset - new_reloc.target_offset;
++
++		  /* Byte length of the minimal uleb128 encoding of
++		     DIFF_VALUE.  */
++		  for (bfd_vma v = diff_value; new_len++, v >>= 7; )
++		    ;
++		  /* The assembler reserves one spare byte for these
++		     differences, but reject growth that still needs more
++		     bytes than were emitted.  */
++		  if (new_len > len)
++		    {
++		      (*link_info->callbacks->reloc_dangerous)
++			(link_info, _("uleb128 difference overflows after "
++				      "relaxation"),
++			 abfd, sec, old_source_offset);
++		      goto error_return;
++		    }
++
++		  /* Rewrite the difference in place, always using the
++		     number of bytes the assembler emitted so that the size
++		     of this section does not change.  A value that now
++		     needs fewer bytes is padded with uleb128 zeroes.  */
++		  endp = p + len - 1;
++		  memset (p, 0x80, len - 1);
++		  *endp = 0;
++		  p = _bfd_write_unsigned_leb128 (p, endp, diff_value);
++		  BFD_ASSERT (p);
++		  if (--p < endp)
++		    *p |= 0x80;
++
++		  pin_contents (sec, contents);
++		}
++
+ 	      if (r_type == R_XTENSA_DIFF8
+ 		  || r_type == R_XTENSA_DIFF16
+ 		  || r_type == R_XTENSA_DIFF32
+diff --git a/bfd/libbfd.h b/bfd/libbfd.h
+index f2af381d123..1a18bd66cc0 100644
+--- a/bfd/libbfd.h
++++ b/bfd/libbfd.h
+@@ -2798,6 +2798,7 @@ static const char *const bfd_reloc_code_real_names[] = { "@@uninitialized@@",
+   "BFD_RELOC_XTENSA_NDIFF8",
+   "BFD_RELOC_XTENSA_NDIFF16",
+   "BFD_RELOC_XTENSA_NDIFF32",
++  "BFD_RELOC_XTENSA_PDIFF_ULEB128",
+   "BFD_RELOC_Z80_DISP8",
+   "BFD_RELOC_Z80_BYTE0",
+   "BFD_RELOC_Z80_BYTE1",
+diff --git a/bfd/reloc.c b/bfd/reloc.c
+index 6b9e00da5d6..5ca263dd8cd 100644
+--- a/bfd/reloc.c
++++ b/bfd/reloc.c
+@@ -6027,6 +6027,18 @@ ENUMDOC
+   differences.  The difference value is treated as unsigned with these
+   relocation types, giving full 8/16 value ranges.
+ 
++ENUM
++  BFD_RELOC_XTENSA_PDIFF_ULEB128
++ENUMDOC
++  Xtensa relocation to mark a positive difference of two local symbols
++  encoded as an unsigned LEB128 value.  This works like
++  BFD_RELOC_XTENSA_PDIFF32, but the linker rewrites the difference in
++  place using the number of bytes the assembler originally emitted, so
++  that the size of the containing section never changes.  Without it the
++  assembler would have to inhibit linker relaxation of all code covered
++  by such a difference, which DWARF 5 location and range lists produce
++  for virtually every function.
++
+ ENUM
+   BFD_RELOC_Z80_DISP8
+ ENUMDOC
+diff --git a/binutils/readelf.c b/binutils/readelf.c
+index 763600c7f50..518412f14fa 100644
+--- a/binutils/readelf.c
++++ b/binutils/readelf.c
+@@ -16869,7 +16869,8 @@ is_none_reloc (Filedata * filedata, unsigned int reloc_type)
+ 	      || reloc_type == 59  /* R_XTENSA_PDIFF32.  */
+ 	      || reloc_type == 60  /* R_XTENSA_NDIFF8.  */
+ 	      || reloc_type == 61  /* R_XTENSA_NDIFF16.  */
+-	      || reloc_type == 62  /* R_XTENSA_NDIFF32.  */);
++	      || reloc_type == 62  /* R_XTENSA_NDIFF32.  */
++	      || reloc_type == 63  /* R_XTENSA_PDIFF_ULEB128.  */);
+     }
+   return false;
+ }
+diff --git a/gas/config/tc-xtensa.c b/gas/config/tc-xtensa.c
+index 0b6d7d185db..7f3603ab2b1 100644
+--- a/gas/config/tc-xtensa.c
++++ b/gas/config/tc-xtensa.c
+@@ -6119,6 +6119,7 @@ md_apply_fix (fixS *fixP, valueT *valP, segT seg)
+       break;
+ 
+     case BFD_RELOC_XTENSA_ASM_EXPAND:
++    case BFD_RELOC_XTENSA_PDIFF_ULEB128:
+     case BFD_RELOC_XTENSA_TLS_FUNC:
+     case BFD_RELOC_XTENSA_TLS_ARG:
+     case BFD_RELOC_XTENSA_TLS_CALL:
+@@ -7376,6 +7377,7 @@ static void xtensa_fix_target_frags (void);
+ static void xtensa_mark_narrow_branches (void);
+ static void xtensa_mark_zcl_first_insns (void);
+ static void xtensa_mark_difference_of_two_symbols (void);
++static void xtensa_insert_uleb128_fixes (bfd *, asection *, void *);
+ static void xtensa_fix_a0_b_retw_frags (void);
+ static void xtensa_fix_b_j_loop_end_frags (void);
+ static void xtensa_fix_close_loop_end_frags (void);
+@@ -7416,6 +7418,9 @@ xtensa_md_finish (void)
+   xtensa_add_config_info ();
+ 
+   xtensa_check_frag_count ();
++
++  if (linkrelax)
++    bfd_map_over_sections (stdoutput, xtensa_insert_uleb128_fixes, NULL);
+ }
+ 
+ struct trampoline_chain_entry
+@@ -8249,11 +8254,87 @@ xtensa_mark_zcl_first_insns (void)
+       }
+ }
+ 
++/* A difference of two symbols encoded as a uleb128 value can be handed to
++   the linker as a BFD_RELOC_XTENSA_PDIFF_ULEB128 relocation: the difference
++   itself stays in the section contents and the relocation records the
++   address of the subtracted symbol, which is all the linker needs to
++   rewrite the value after relaxation.  DWARF 5 location and range lists
++   are made almost entirely of such differences, so without this the code
++   covered by them could never be relaxed.
++
++   This has to run before relaxation turns the rs_leb128 frags into plain
++   data.  Differences that cannot be represented this way are left to
++   xtensa_mark_difference_of_two_symbols.
++
++   Mark the expression symbol so xtensa_leb128_frag_size can reserve one
++   spare byte: Xtensa linker relaxation can grow code, which may push a
++   difference across a uleb128 byte boundary.  */
++
++static void
++xtensa_insert_uleb128_fixes (bfd *abfd ATTRIBUTE_UNUSED,
++			     asection *sec,
++			     void *unused ATTRIBUTE_UNUSED)
++{
++  segment_info_type *seginfo = seg_info (sec);
++  fragS *fragP;
++
++  if (seginfo == NULL || seginfo->frchainP == NULL)
++    return;
++
++  subseg_set (sec, 0);
++
++  for (fragP = seginfo->frchainP->frch_root; fragP; fragP = fragP->fr_next)
++    {
++      expressionS *exp;
++      symbolS *op_sym;
++
++      /* Non-zero fr_subtype is sleb128 (no relocation).  */
++      if (fragP->fr_type != rs_leb128 || fragP->fr_subtype != 0
++	  || fragP->fr_symbol == NULL)
++	continue;
++
++      exp = symbol_get_value_expression (fragP->fr_symbol);
++      if (exp->X_op != O_subtract)
++	continue;
++
++      op_sym = exp->X_op_symbol;
++
++      /* R_XTENSA_PDIFF_ULEB128 only encodes same-section differences.  */
++      if (S_GET_SEGMENT (exp->X_add_symbol) != S_GET_SEGMENT (op_sym))
++	continue;
++
++      /* Only code sections are relaxed.  */
++      if (!(bfd_section_flags (S_GET_SEGMENT (op_sym)) & SEC_CODE))
++	continue;
++
++      fix_new (fragP, fragP->fr_fix, 0, op_sym, 0, 0,
++	       BFD_RELOC_XTENSA_PDIFF_ULEB128);
++      symbol_get_tc (fragP->fr_symbol)->has_leb128_diff_reloc = 1;
++    }
++}
++
++/* For uleb128 diffs with R_XTENSA_PDIFF_ULEB128, reserve one spare byte so
++   linker relaxation can grow the value across one 7-bit boundary without
++   overflowing.  Growth that needs more than one extra byte still errors in
++   the linker.  frag_var already allocated sizeof_leb128 (~0, 0) bytes;
++   clamp if the value already needs that many.  */
++
++offsetT
++xtensa_leb128_frag_size (const fragS *fragP, offsetT size)
++{
++  if (fragP->fr_symbol != NULL
++      && symbol_get_tc (fragP->fr_symbol)->has_leb128_diff_reloc
++      && size < (offsetT) sizeof_leb128 (~(valueT) 0, 0))
++    size++;
++  return size;
++}
++
+ 
+ /* When a difference-of-symbols expression is encoded as a uleb128 or
+-   sleb128 value, the linker is unable to adjust that value to account for
+-   link-time relaxation.  Mark all the code between such symbols so that
+-   its size cannot be changed by linker relaxation.  */
++   sleb128 value and no relocation can express it, the linker is unable to
++   adjust that value to account for link-time relaxation.  Mark all the code
++   between such symbols so that its size cannot be changed by linker
++   relaxation.  */
+ 
+ static void
+ xtensa_mark_difference_of_two_symbols (void)
+@@ -8265,6 +8346,9 @@ xtensa_mark_difference_of_two_symbols (void)
+     {
+       expressionS *exp = symbol_get_value_expression (expr_sym);
+ 
++      if (symbol_get_tc (expr_sym)->has_leb128_diff_reloc)
++	continue;
++
+       if (exp->X_op == O_subtract)
+ 	{
+ 	  symbolS *left = exp->X_add_symbol;
+diff --git a/gas/config/tc-xtensa.h b/gas/config/tc-xtensa.h
+index 64d735144d7..afd7478dd8d 100644
+--- a/gas/config/tc-xtensa.h
++++ b/gas/config/tc-xtensa.h
+@@ -297,6 +297,9 @@ typedef struct xtensa_symfield_type
+ {
+   unsigned int is_loop_target : 1;
+   unsigned int is_branch_target : 1;
++  /* Set when a uleb128 difference got R_XTENSA_PDIFF_ULEB128, so code
++     between the symbols may still be relaxed.  */
++  unsigned int has_leb128_diff_reloc : 1;
+   symbolS *next_expr_symbol;
+ } xtensa_symfield_type;
+ 
+@@ -341,6 +344,7 @@ extern int xtensa_unrecognized_line (int);
+ extern bool xtensa_check_inside_bundle (void);
+ extern void xtensa_handle_align (fragS *);
+ extern char *xtensa_section_rename (const char *);
++extern offsetT xtensa_leb128_frag_size (const fragS *, offsetT);
+ 
+ /* We need to set the target endianness in xtensa_init and not in md_begin.
+    This is because xtensa_target_format is called before md_begin, and we
+@@ -374,6 +378,7 @@ extern void xtensa_init (int, char **);
+ #define md_elf_section_change_hook	xtensa_elf_section_change_hook
+ #define md_finish			xtensa_md_finish
+ #define md_flush_pending_output()	xtensa_flush_pending_output ()
++#define md_leb128_frag_size(frag, size)	xtensa_leb128_frag_size (frag, size)
+ #define md_operand(x)
+ #define TEXT_SECTION_NAME		xtensa_section_rename (".text")
+ #define DATA_SECTION_NAME		xtensa_section_rename (".data")
+diff --git a/gas/testsuite/gas/xtensa/pdiff-uleb128-norelax.d b/gas/testsuite/gas/xtensa/pdiff-uleb128-norelax.d
+new file mode 100644
+index 00000000000..dcd4641083f
+--- /dev/null
++++ b/gas/testsuite/gas/xtensa/pdiff-uleb128-norelax.d
+@@ -0,0 +1,20 @@
++#as: --no-link-relax
++#source: pdiff-uleb128.s
++#objdump: -r -s -j .debug_info -j .xt.prop
++#name: uleb128 difference without link-relax
++
++# Without link-relax, no R_XTENSA_PDIFF_ULEB128 is emitted.  The assembler
++# falls back to marking the covered code no_transform via .xt.prop, and the
++# uleb128 uses the minimal encoding (no spare byte).
++
++.*: +file format .*xtensa.*
++
++RELOCATION RECORDS FOR \[.xt.prop\]:
++OFFSET +TYPE +VALUE
++0+ R_XTENSA_32 +.text.*
++
++Contents of section .debug_info:
++ 0000 c801.*
++#...
++Contents of section .xt.prop:
++ 0000 .*
+diff --git a/gas/testsuite/gas/xtensa/pdiff-uleb128.d b/gas/testsuite/gas/xtensa/pdiff-uleb128.d
+new file mode 100644
+index 00000000000..5c38f56ca66
+--- /dev/null
++++ b/gas/testsuite/gas/xtensa/pdiff-uleb128.d
+@@ -0,0 +1,12 @@
++#objdump: -r -s -j .debug_info
++#name: uleb128 difference reloc
++
++.*: +file format .*xtensa.*
++
++RELOCATION RECORDS FOR \[.debug_info\]:
++OFFSET +TYPE +VALUE
++0+ R_XTENSA_PDIFF_ULEB128 +.text.*
++
++# Difference is 200 (0xc8 0x01) plus one spare byte reserved for growth.
++Contents of section .debug_info:
++ 0000 c88100.*
+diff --git a/gas/testsuite/gas/xtensa/pdiff-uleb128.s b/gas/testsuite/gas/xtensa/pdiff-uleb128.s
+new file mode 100644
+index 00000000000..0b431a3ac26
+--- /dev/null
++++ b/gas/testsuite/gas/xtensa/pdiff-uleb128.s
+@@ -0,0 +1,7 @@
++	.text
++.L1:
++	.space	200
++.L2:
++
++	.section	.debug_info, "", @progbits
++	.uleb128	.L2 - .L1
+diff --git a/gas/write.c b/gas/write.c
+index cd02d8c7fb8..467b51be7f8 100644
+--- a/gas/write.c
++++ b/gas/write.c
+@@ -461,6 +461,23 @@ cvt_frag_to_fill (segT sec ATTRIBUTE_UNUSED, fragS *fragP)
+ 	size = output_leb128 (fragP->fr_literal + fragP->fr_fix, value,
+ 			      fragP->fr_subtype);
+ 
++	/* Relaxation may have reserved more room than the shortest encoding
++	   needs (see md_leb128_frag_size).  Keep the reserved size by adding
++	   redundant high-order continuation bytes; inert unless a target
++	   hook grew fr_offset above the minimal encoding.  */
++	if ((offsetT) size < fragP->fr_offset)
++	  {
++	    char *p = fragP->fr_literal + fragP->fr_fix;
++	    char pad = fragP->fr_subtype && (offsetT) value < 0 ? 0x7f : 0;
++
++	    do
++	      {
++		p[size - 1] |= 0x80;
++		p[size++] = pad;
++	      }
++	    while ((offsetT) size < fragP->fr_offset);
++	  }
++
+ 	fragP->fr_fix += size;
+ 	fragP->fr_type = rs_fill;
+ 	fragP->fr_var = 0;
+@@ -3124,6 +3141,9 @@ relax_segment (struct frag *segment_frag_root, segT segment, int pass)
+ 
+ 		  value = resolve_symbol_value (fragP->fr_symbol);
+ 		  size = sizeof_leb128 (value, fragP->fr_subtype);
++#ifdef md_leb128_frag_size
++		  size = md_leb128_frag_size (fragP, size);
++#endif
+ 		  growth = size - fragP->fr_offset;
+ 		  fragP->fr_offset = size;
+ 		}
+diff --git a/include/elf/xtensa.h b/include/elf/xtensa.h
+index 339c8bf8ada..64581d1c672 100644
+--- a/include/elf/xtensa.h
++++ b/include/elf/xtensa.h
+@@ -93,6 +93,9 @@ START_RELOC_NUMBERS (elf_xtensa_reloc_type)
+      RELOC_NUMBER (R_XTENSA_NDIFF8, 60)
+      RELOC_NUMBER (R_XTENSA_NDIFF16, 61)
+      RELOC_NUMBER (R_XTENSA_NDIFF32, 62)
++     /* Positive same-section difference encoded as uleb128; rewritten
++	in place after relaxation without changing the section size.  */
++     RELOC_NUMBER (R_XTENSA_PDIFF_ULEB128, 63)
+ END_RELOC_NUMBERS (R_XTENSA_max)
+ 
+ /* Processor-specific flags for the ELF header e_flags field.  */
+diff --git a/ld/testsuite/ld-xtensa/relax-uleb128-2.d b/ld/testsuite/ld-xtensa/relax-uleb128-2.d
+new file mode 100644
+index 00000000000..c0f1c9ca378
+--- /dev/null
++++ b/ld/testsuite/ld-xtensa/relax-uleb128-2.d
+@@ -0,0 +1,12 @@
++#source: relax-uleb128-2.s
++#source: lcall2.s
++#ld: -T lcall.t
++#objdump: -s -j .debug_info
++#name: uleb128 difference shrinking below 128
++
++# The difference is 156 before relaxation and 108 after it, so the value no
++# longer needs two bytes.  The assembler reserved one spare byte (three
++# total), and the linker must keep that fixed width with uleb128 padding.
++#...
++ 0000 ec8000.*
++#...
+diff --git a/ld/testsuite/ld-xtensa/relax-uleb128-2.s b/ld/testsuite/ld-xtensa/relax-uleb128-2.s
+new file mode 100644
+index 00000000000..c587ed8bb06
+--- /dev/null
++++ b/ld/testsuite/ld-xtensa/relax-uleb128-2.s
+@@ -0,0 +1,18 @@
++	.globl	_start
++	.globl	foo
++	.text
++	.align	4
++_start:
++	.literal	.Lunused, 0xffffffff
++	entry	a5, 16
++.L1:
++	.space	60
++	.begin	longcalls
++	.rept	16
++	call4	foo
++	.endr
++	.end	longcalls
++.L2:
++
++	.section	.debug_info, "", @progbits
++	.uleb128	.L2 - .L1
+diff --git a/ld/testsuite/ld-xtensa/relax-uleb128.d b/ld/testsuite/ld-xtensa/relax-uleb128.d
+new file mode 100644
+index 00000000000..08b017984d8
+--- /dev/null
++++ b/ld/testsuite/ld-xtensa/relax-uleb128.d
+@@ -0,0 +1,11 @@
++#source: relax-uleb128.s
++#source: lcall2.s
++#ld: -T lcall.t
++#objdump: -s -j .debug_info
++#name: uleb128 difference after longcall relax
++
++# Longcall relaxes from 6 bytes to 3; with the trailing nop the difference
++# is 5.  Assembler reserved one spare byte (two total).
++#...
++ 0000 8500.*
++#...
+diff --git a/ld/testsuite/ld-xtensa/relax-uleb128.s b/ld/testsuite/ld-xtensa/relax-uleb128.s
+new file mode 100644
+index 00000000000..8e1c0058976
+--- /dev/null
++++ b/ld/testsuite/ld-xtensa/relax-uleb128.s
+@@ -0,0 +1,16 @@
++	.globl	_start
++	.globl	foo
++	.text
++	.align	4
++_start:
++	.literal	.Lunused, 0xffffffff
++	entry	a5, 16
++.L1:
++	.begin	longcalls
++	call4	foo
++	.end	longcalls
++	nop
++.L2:
++
++	.section	.debug_info, "", @progbits
++	.uleb128	.L2 - .L1
+diff --git a/ld/testsuite/ld-xtensa/xtensa.exp b/ld/testsuite/ld-xtensa/xtensa.exp
+index 97b7d159a68..2e34d767b1f 100644
+--- a/ld/testsuite/ld-xtensa/xtensa.exp
++++ b/ld/testsuite/ld-xtensa/xtensa.exp
+@@ -31,6 +31,8 @@ run_dump_test "lcall"
+ run_dump_test "relax-diff1"
+ run_dump_test "relax-loc"
+ run_dump_test "relax-ndiff"
++run_dump_test "relax-uleb128"
++run_dump_test "relax-uleb128-2"
+ 
+ run_dump_test "relax-static-pie"
+ run_dump_test "relax-static-local-pie"
+-- 
+2.55.0
+

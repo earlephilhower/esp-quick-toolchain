@@ -1,0 +1,26 @@
+From 826ab478201bbb5afe851bc88ab4ce90064e2596 Mon Sep 17 00:00:00 2001
+From: earlephilhower/esp-quick-toolchain <woot>
+Date: Sat, 26 Sep 2026 14:46:19 +0300
+Subject: [PATCH 11/14] __FILE__ macro short name
+
+---
+ libcpp/macro.cc | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/libcpp/macro.cc b/libcpp/macro.cc
+index 352eb2e4fd9..e08ef5415f2 100644
+--- a/libcpp/macro.cc
++++ b/libcpp/macro.cc
+@@ -557,8 +557,7 @@ _cpp_builtin_macro_text (cpp_reader *pfile, cpp_hashnode *node,
+ 	  {
+ 	    name = linemap_get_expansion_filename (pfile->line_table,
+ 						   pfile->line_table->highest_line);
+-	    if ((node->value.builtin == BT_FILE_NAME) && name)
+-	      name = lbasename (name);
++	    name = lbasename (name);
+ 	  }
+ 	else
+ 	  {
+-- 
+2.55.0
+

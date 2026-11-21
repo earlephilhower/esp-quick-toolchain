@@ -1,0 +1,58 @@
+# generic exception interface override
+# TODO SHOULD use .py script wrapper before attemping a search, otherwise syntax tree would be invalid
+
+language: Cpp
+
+utils:
+  finder:
+    any:
+      - matches: find-string
+      - matches: find-concatenated-string
+      - matches: find-string-tree-sitter-workaround
+
+  localizable-macro:
+    kind: argument_list
+    inside:
+      kind: call_expression
+      regex: __N\(
+      pattern:
+        context: __N($$$)
+      inside:
+        matches: return-statement
+
+  return-statement:
+    kind: return_statement
+    inside:
+      kind: compound_statement
+      inside:
+        kind: function_definition
+        regex: ::what\(\)|what\(\)
+
+  find-string:
+    kind: string_literal
+    inside:
+      any:
+        - matches: localizable-macro
+        - matches: return-statement
+
+  find-concatenated-string:
+    kind: concatenated_string
+    inside:
+      kind: argument_list
+      inside:
+        any:
+          - matches: localizable-macro
+          - matches: return-statement
+
+  find-string-tree-sitter-workaround:
+    kind: string_literal
+    follows:
+      kind: identifier
+      regex: ^return$
+    inside:
+      stopBy:
+        kind: init_declarator
+      regex: what\(\) const
+
+rule:
+  matches: finder

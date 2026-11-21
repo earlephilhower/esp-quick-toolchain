@@ -1,0 +1,17 @@
+prevent libdep.a installation w/ --disable-shared
+
+https://github.com/msys2/MINGW-packages/issues/7890
+https://github.com/msys2/MINGW-packages/blob/38384e98d4e7c207045038dd084981c268c0bb14/mingw-w64-binutils/PKGBUILD#L151
+
+diff --git a/ld/Makefile.in b/ld/Makefile.in
+index 3e24bd4deb2..f6c7d5bf7be 100644
+--- a/ld/Makefile.in
++++ b/ld/Makefile.in
+@@ -2473,6 +2473,7 @@ install-data-local: install-bfdpluginLTLIBRARIES
+ 	    *) $(INSTALL_DATA) $$f $(DESTDIR)$(scriptdir)/$$f ; \
+ 	  esac \
+ 	done
++	rm -f $(DESTDIR)$(bfdplugindir)/libdep.a
+ 	rm -f $(DESTDIR)$(bfdplugindir)/libdep.la
+ 	rm -f $(DESTDIR)$(bfdplugindir)/libdep.dll.a
+ diststuff: info $(EXTRA_DIST)

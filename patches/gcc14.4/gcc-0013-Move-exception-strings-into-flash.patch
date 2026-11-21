@@ -1,0 +1,4267 @@
+From 156cee236730ba1ff70076a18345585c86d85856 Mon Sep 17 00:00:00 2001
+From: Maxim Prokhorov <prokhorov.max@outlook.com>
+Date: Wed, 30 Sep 2026 13:19:54 +0300
+Subject: [PATCH 13/14] Move exception strings into flash
+
+port of the original patch for containers and regex, modified in bulk
+by libstd_flash_string_decls.py
+
+note that stdexcept handlers in use here construct std::string, which
+means static string either has to be manually safely copied there OR
+unaligned reads exceptions handler has to be enabled at the same time
+
+still useful and seamless for the case of -fno-exceptions, though
+since error strings are printed using flash-string-aware routines
+---
+ libstdc++-v3/include/__eqt/excstring.hpp      | 24 ++++++
+ libstdc++-v3/include/bits/basic_ios.tcc       | 10 ++-
+ libstdc++-v3/include/bits/basic_string.h      | 58 ++++++++------
+ libstdc++-v3/include/bits/basic_string.tcc    | 19 ++++-
+ libstdc++-v3/include/bits/chrono_io.h         | 58 ++++++++------
+ libstdc++-v3/include/bits/cow_string.h        | 75 ++++++++++++-------
+ libstdc++-v3/include/bits/deque.tcc           | 18 ++++-
+ libstdc++-v3/include/bits/fstream.tcc         | 35 +++++----
+ libstdc++-v3/include/bits/hashtable_policy.h  | 12 ++-
+ libstdc++-v3/include/bits/locale_conv.h       | 13 +++-
+ libstdc++-v3/include/bits/regex_automaton.h   | 12 ++-
+ libstdc++-v3/include/bits/regex_automaton.tcc | 16 +++-
+ libstdc++-v3/include/bits/regex_compiler.h    | 22 ++++--
+ libstdc++-v3/include/bits/regex_compiler.tcc  | 26 ++++---
+ libstdc++-v3/include/bits/regex_scanner.tcc   | 22 ++++--
+ libstdc++-v3/include/bits/stl_bvector.h       | 15 +++-
+ libstdc++-v3/include/bits/stl_deque.h         | 15 +++-
+ libstdc++-v3/include/bits/stl_map.h           | 12 ++-
+ libstdc++-v3/include/bits/stl_vector.h        | 15 +++-
+ libstdc++-v3/include/bits/vector.tcc          | 37 ++++++---
+ libstdc++-v3/include/experimental/any         | 10 ++-
+ libstdc++-v3/include/experimental/bits/net.h  | 10 ++-
+ libstdc++-v3/include/experimental/buffer      | 10 ++-
+ libstdc++-v3/include/experimental/executor    | 10 ++-
+ libstdc++-v3/include/experimental/internet    | 30 ++++++--
+ libstdc++-v3/include/experimental/optional    | 20 +++--
+ libstdc++-v3/include/experimental/string_view | 22 +++---
+ .../include/ext/codecvt_specializations.h     | 15 +++-
+ libstdc++-v3/include/ext/concurrence.h        | 19 ++++-
+ libstdc++-v3/include/ext/debug_allocator.h    | 13 +++-
+ libstdc++-v3/include/ext/pb_ds/exception.hpp  | 10 ++-
+ libstdc++-v3/include/ext/random.tcc           | 19 +++--
+ libstdc++-v3/include/ext/rc_string_base.h     | 14 +++-
+ libstdc++-v3/include/ext/ropeimpl.h           | 10 ++-
+ libstdc++-v3/include/ext/sso_string_base.h    | 14 +++-
+ libstdc++-v3/include/ext/vstring.h            | 39 ++++++----
+ libstdc++-v3/include/ext/vstring.tcc          | 25 +++++--
+ libstdc++-v3/include/std/any                  | 10 ++-
+ libstdc++-v3/include/std/array                | 14 +++-
+ libstdc++-v3/include/std/bitset               | 43 +++++++----
+ libstdc++-v3/include/std/expected             | 10 ++-
+ libstdc++-v3/include/std/format               | 52 +++++++------
+ libstdc++-v3/include/std/optional             | 10 ++-
+ libstdc++-v3/include/std/span                 | 11 ++-
+ libstdc++-v3/include/std/stacktrace           | 18 +++--
+ libstdc++-v3/include/std/string_view          | 16 ++--
+ libstdc++-v3/include/std/thread               | 11 ++-
+ libstdc++-v3/include/std/variant              | 22 ++++--
+ libstdc++-v3/include/tr1/array                | 12 ++-
+ libstdc++-v3/include/tr1/bessel_function.tcc  | 35 +++++----
+ libstdc++-v3/include/tr1/ell_integral.tcc     | 49 +++++++-----
+ libstdc++-v3/include/tr1/exp_integral.tcc     | 15 +++-
+ libstdc++-v3/include/tr1/gamma.tcc            | 15 +++-
+ libstdc++-v3/include/tr1/hypergeometric.tcc   | 49 ++++++------
+ .../include/tr1/modified_bessel_func.tcc      | 28 ++++---
+ libstdc++-v3/include/tr1/poly_laguerre.tcc    | 11 ++-
+ libstdc++-v3/include/tr1/random.h             | 15 +++-
+ libstdc++-v3/include/tr1/riemann_zeta.tcc     | 10 ++-
+ libstdc++-v3/include/tr1/shared_ptr.h         | 10 ++-
+ libstdc++-v3/include/tr2/dynamic_bitset       | 23 ++++--
+ libstdc++-v3/include/tr2/dynamic_bitset.tcc   | 16 +++-
+ libstdc++-v3/libsupc++/bad_alloc.cc           | 10 ++-
+ libstdc++-v3/libsupc++/bad_array_length.cc    | 10 ++-
+ libstdc++-v3/libsupc++/bad_array_new.cc       | 10 ++-
+ libstdc++-v3/libsupc++/bad_cast.cc            | 10 ++-
+ libstdc++-v3/libsupc++/bad_typeid.cc          | 10 ++-
+ libstdc++-v3/libsupc++/eh_exception.cc        | 13 +++-
+ libstdc++-v3/src/c++11/compatibility-c++0x.cc | 10 ++-
+ libstdc++-v3/src/c++11/cxx11-shim_facets.cc   | 13 +++-
+ libstdc++-v3/src/c++11/functional.cc          | 10 ++-
+ libstdc++-v3/src/c++11/ios.cc                 | 13 +++-
+ libstdc++-v3/src/c++11/localename.cc          | 10 ++-
+ libstdc++-v3/src/c++11/random.cc              | 40 ++++++----
+ libstdc++-v3/src/c++11/shared_ptr.cc          | 10 ++-
+ 74 files changed, 1066 insertions(+), 412 deletions(-)
+ create mode 100644 libstdc++-v3/include/__eqt/excstring.hpp
+
+diff --git a/libstdc++-v3/include/__eqt/excstring.hpp b/libstdc++-v3/include/__eqt/excstring.hpp
+new file mode 100644
+index 00000000000..f74439b53ef
+--- /dev/null
++++ b/libstdc++-v3/include/__eqt/excstring.hpp
+@@ -0,0 +1,24 @@
++/**
++!!! AUTOMATICALLY GENERATED by the esp-quick-toolchain build script !!!
++*/
++
++#pragma once
++
++#define __EQT_EXCSTR_CONCAT_IMPL(X, Y, Z) X ## Y ## Z
++#define __EQT_EXCSTR_CONCAT(X, Y, Z) __EQT_EXCSTR_CONCAT_IMPL(X, Y, Z)
++#define __EQT_EXCSTR_ATTR __attribute__((section(".irom.exceptiontext"))) __attribute__((aligned(4)))
++
++#if (__cplusplus >= 201103L)
++#define __EQT_EXCSTR_CONSTEXPR constexpr
++#else
++#define __EQT_EXCSTR_CONSTEXPR
++#endif
++
++#define __EQT_EXCSTR_DECL(NAME, s)\
++    static __EQT_EXCSTR_CONSTEXPR const char NAME [] __EQT_EXCSTR_ATTR = s
++
++#define __EQT_EXCSTR_WRAP(NAME, s) (({ __EQT_EXCSTR_DECL(NAME, s); &NAME[0]; }))
++#define __EQT_EXCSTR_NAME(X) __EQT_EXCSTR_CONCAT(X, __LINE__, __COUNTER__)
++
++#define __EQT_EXCSTR(s)\
++    __EQT_EXCSTR_WRAP(__EQT_EXCSTR_NAME(__exception_what__), s)
+diff --git a/libstdc++-v3/include/bits/basic_ios.tcc b/libstdc++-v3/include/bits/basic_ios.tcc
+index a9313736e32..05954054d6c 100644
+--- a/libstdc++-v3/include/bits/basic_ios.tcc
++++ b/libstdc++-v3/include/bits/basic_ios.tcc
+@@ -32,6 +32,14 @@
+ 
+ #pragma GCC system_header
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_basic_ios_tcc0, __N("basic_ios::clear"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -45,7 +53,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       else
+ 	_M_streambuf_state = __state | badbit;
+       if (this->exceptions() & this->rdstate())
+-	__throw_ios_failure(__N("basic_ios::clear"));
++	__throw_ios_failure(__eqt_excstr_throwing_bits_basic_ios_tcc0);
+     }
+ 
+   template<typename _CharT, typename _Traits>
+diff --git a/libstdc++-v3/include/bits/basic_string.h b/libstdc++-v3/include/bits/basic_string.h
+index 72e46783483..0cd0dca7e98 100644
+--- a/libstdc++-v3/include/bits/basic_string.h
++++ b/libstdc++-v3/include/bits/basic_string.h
+@@ -57,6 +57,23 @@
+ # include "cow_string.h"
+ #else
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_basic_string_h0, __N("%s: __pos (which is %zu) > this->size() (which is %zu)"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_basic_string_h1, __N("basic_string: construction from null is not valid"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_basic_string_h2, __N("basic_string::at: __n (which is %zu) >= this->size() (which is %zu)"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_basic_string_h3, "basic_string::append");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_basic_string_h4, "basic_string::insert");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_basic_string_h5, "basic_string::erase");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_basic_string_h6, "basic_string::replace");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_basic_string_h7, "basic_string::substr");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_basic_string_h8, "basic_string::compare");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_basic_string_h9, "stof");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -391,8 +408,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+       _M_check(size_type __pos, const char* __s) const
+       {
+ 	if (__pos > this->size())
+-	  __throw_out_of_range_fmt(__N("%s: __pos (which is %zu) > "
+-				       "this->size() (which is %zu)"),
++	  __throw_out_of_range_fmt(__eqt_excstr_throwing_bits_basic_string_h0,
+ 				   __s, __pos, this->size());
+ 	return __pos;
+       }
+@@ -627,8 +643,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+       {
+ 	// NB: Not required, but considered best practice.
+ 	if (__s == 0 && __n > 0)
+-	  std::__throw_logic_error(__N("basic_string: "
+-				       "construction from null is not valid"));
++	  std::__throw_logic_error(__eqt_excstr_throwing_bits_basic_string_h1);
+ 	_M_construct(__s, __s + __n, std::forward_iterator_tag());
+       }
+ 
+@@ -648,8 +663,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+       {
+ 	// NB: Not required, but considered best practice.
+ 	if (__s == 0)
+-	  std::__throw_logic_error(__N("basic_string: "
+-				       "construction from null is not valid"));
++	  std::__throw_logic_error(__eqt_excstr_throwing_bits_basic_string_h1);
+ 	const _CharT* __end = __s + traits_type::length(__s);
+ 	_M_construct(__s, __end, forward_iterator_tag());
+       }
+@@ -1287,9 +1301,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+       at(size_type __n) const
+       {
+ 	if (__n >= this->size())
+-	  __throw_out_of_range_fmt(__N("basic_string::at: __n "
+-				       "(which is %zu) >= this->size() "
+-				       "(which is %zu)"),
++	  __throw_out_of_range_fmt(__eqt_excstr_throwing_bits_basic_string_h2,
+ 				   __n, this->size());
+ 	return _M_data()[__n];
+       }
+@@ -1309,9 +1321,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+       at(size_type __n)
+       {
+ 	if (__n >= size())
+-	  __throw_out_of_range_fmt(__N("basic_string::at: __n "
+-				       "(which is %zu) >= this->size() "
+-				       "(which is %zu)"),
++	  __throw_out_of_range_fmt(__eqt_excstr_throwing_bits_basic_string_h2,
+ 				   __n, this->size());
+ 	return _M_data()[__n];
+       }
+@@ -1466,7 +1476,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+       append(const _CharT* __s, size_type __n)
+       {
+ 	__glibcxx_requires_string_len(__s, __n);
+-	_M_check_length(size_type(0), __n, "basic_string::append");
++	_M_check_length(size_type(0), __n, __eqt_excstr_throwing_bits_basic_string_h3);
+ 	return _M_append(__s, __n);
+       }
+ 
+@@ -1481,7 +1491,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+       {
+ 	__glibcxx_requires_string(__s);
+ 	const size_type __n = traits_type::length(__s);
+-	_M_check_length(size_type(0), __n, "basic_string::append");
++	_M_check_length(size_type(0), __n, __eqt_excstr_throwing_bits_basic_string_h3);
+ 	return _M_append(__s, __n);
+       }
+ 
+@@ -2030,7 +2040,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+       _GLIBCXX20_CONSTEXPR
+       basic_string&
+       insert(size_type __pos, size_type __n, _CharT __c)
+-      { return _M_replace_aux(_M_check(__pos, "basic_string::insert"),
++      { return _M_replace_aux(_M_check(__pos, __eqt_excstr_throwing_bits_basic_string_h4),
+ 			      size_type(0), __n, __c); }
+ 
+       /**
+@@ -2113,7 +2123,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+       basic_string&
+       erase(size_type __pos = 0, size_type __n = npos)
+       {
+-	_M_check(__pos, "basic_string::erase");
++	_M_check(__pos, __eqt_excstr_throwing_bits_basic_string_h5);
+ 	if (__n == npos)
+ 	  this->_M_set_length(__pos);
+ 	else if (__n != 0)
+@@ -2250,7 +2260,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+ 	      size_type __n2)
+       {
+ 	__glibcxx_requires_string_len(__s, __n2);
+-	return _M_replace(_M_check(__pos, "basic_string::replace"),
++	return _M_replace(_M_check(__pos, __eqt_excstr_throwing_bits_basic_string_h6),
+ 			  _M_limit(__pos, __n1), __s, __n2);
+       }
+ 
+@@ -2298,7 +2308,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+       _GLIBCXX20_CONSTEXPR
+       basic_string&
+       replace(size_type __pos, size_type __n1, size_type __n2, _CharT __c)
+-      { return _M_replace_aux(_M_check(__pos, "basic_string::replace"),
++      { return _M_replace_aux(_M_check(__pos, __eqt_excstr_throwing_bits_basic_string_h6),
+ 			      _M_limit(__pos, __n1), __n2, __c); }
+ 
+       /**
+@@ -3207,7 +3217,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+       basic_string
+       substr(size_type __pos = 0, size_type __n = npos) const
+       { return basic_string(*this,
+-			    _M_check(__pos, "basic_string::substr"), __n); }
++			    _M_check(__pos, __eqt_excstr_throwing_bits_basic_string_h7), __n); }
+ 
+       /**
+        *  @brief  Compare to a string.
+@@ -3322,7 +3332,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+       int
+       compare(size_type __pos, size_type __n, const basic_string& __str) const
+       {
+-	_M_check(__pos, "basic_string::compare");
++	_M_check(__pos, __eqt_excstr_throwing_bits_basic_string_h8);
+ 	__n = _M_limit(__pos, __n);
+ 	const size_type __osize = __str.size();
+ 	const size_type __len = std::min(__n, __osize);
+@@ -3360,7 +3370,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+       compare(size_type __pos1, size_type __n1, const basic_string& __str,
+ 	      size_type __pos2, size_type __n2 = npos) const
+       {
+-	_M_check(__pos1, "basic_string::compare");
++	_M_check(__pos1, __eqt_excstr_throwing_bits_basic_string_h8);
+ 	__str._M_check(__pos2, "basic_string::compare");
+ 	__n1 = _M_limit(__pos1, __n1);
+ 	__n2 = __str._M_limit(__pos2, __n2);
+@@ -3426,7 +3436,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+       compare(size_type __pos, size_type __n1, const _CharT* __s) const
+       {
+ 	__glibcxx_requires_string(__s);
+-	_M_check(__pos, "basic_string::compare");
++	_M_check(__pos, __eqt_excstr_throwing_bits_basic_string_h8);
+ 	__n1 = _M_limit(__pos, __n1);
+ 	const size_type __osize = traits_type::length(__s);
+ 	const size_type __len = std::min(__n1, __osize);
+@@ -3466,7 +3476,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+ 	      size_type __n2) const
+       {
+ 	__glibcxx_requires_string_len(__s, __n2);
+-	_M_check(__pos, "basic_string::compare");
++	_M_check(__pos, __eqt_excstr_throwing_bits_basic_string_h8);
+ 	__n1 = _M_limit(__pos, __n1);
+ 	const size_type __len = std::min(__n1, __n2);
+ 	int __r = traits_type::compare(_M_data() + __pos, __s, __len);
+@@ -4213,7 +4223,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+ 	if (__abs_d < __FLT_MIN__ || __abs_d > __FLT_MAX__)
+ 	  {
+ 	    errno = ERANGE;
+-	    std::__throw_out_of_range("stof");
++	    std::__throw_out_of_range(__eqt_excstr_throwing_bits_basic_string_h9);
+ 	  }
+       }
+     return __d;
+diff --git a/libstdc++-v3/include/bits/basic_string.tcc b/libstdc++-v3/include/bits/basic_string.tcc
+index b7a68dd7a48..3ec7d41345f 100644
+--- a/libstdc++-v3/include/bits/basic_string.tcc
++++ b/libstdc++-v3/include/bits/basic_string.tcc
+@@ -43,6 +43,17 @@
+ 
+ #include <bits/cxxabi_forced.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_basic_string_tcc0, __N("basic_string::_M_create"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_basic_string_tcc1, "basic_string::_M_replace_aux");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_basic_string_tcc2, "basic_string::_M_replace");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_basic_string_tcc3, "basic_string::copy");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -141,7 +152,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       // _GLIBCXX_RESOLVE_LIB_DEFECTS
+       // 83.  String::npos vs. string::max_size()
+       if (__capacity > max_size())
+-	std::__throw_length_error(__N("basic_string::_M_create"));
++	std::__throw_length_error(__eqt_excstr_throwing_bits_basic_string_tcc0);
+ 
+       // The below implements an exponential growth policy, necessary to
+       // meet amortized linear time requirements of the library: see
+@@ -451,7 +462,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     _M_replace_aux(size_type __pos1, size_type __n1, size_type __n2,
+ 		   _CharT __c)
+     {
+-      _M_check_length(__n1, __n2, "basic_string::_M_replace_aux");
++      _M_check_length(__n1, __n2, __eqt_excstr_throwing_bits_basic_string_tcc1);
+ 
+       const size_type __old_size = this->size();
+       const size_type __new_size = __old_size + __n2 - __n1;
+@@ -512,7 +523,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     _M_replace(size_type __pos, size_type __len1, const _CharT* __s,
+ 	       const size_type __len2)
+     {
+-      _M_check_length(__len1, __len2, "basic_string::_M_replace");
++      _M_check_length(__len1, __len2, __eqt_excstr_throwing_bits_basic_string_tcc2);
+ 
+       const size_type __old_size = this->size();
+       const size_type __new_size = __old_size + __len2 - __len1;
+@@ -557,7 +568,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     basic_string<_CharT, _Traits, _Alloc>::
+     copy(_CharT* __s, size_type __n, size_type __pos) const
+     {
+-      _M_check(__pos, "basic_string::copy");
++      _M_check(__pos, __eqt_excstr_throwing_bits_basic_string_tcc3);
+       __n = _M_limit(__pos, __n);
+       __glibcxx_requires_string_len(__s, __n);
+       if (__n)
+diff --git a/libstdc++-v3/include/bits/chrono_io.h b/libstdc++-v3/include/bits/chrono_io.h
+index 6e398a4ad3d..2896bc7a5de 100644
+--- a/libstdc++-v3/include/bits/chrono_io.h
++++ b/libstdc++-v3/include/bits/chrono_io.h
+@@ -41,6 +41,27 @@
+ 
+ #include <bits/streambuf_iterator.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_chrono_io_h0, "format error: no timezone available for %Z or %z");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_chrono_io_h1, "format error: chrono-format-spec not valid for chrono::duration");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_chrono_io_h2, "format error: chrono-format-spec not valid for argument type");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_chrono_io_h3, "chrono format error: '{' in chrono-specs");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_chrono_io_h4, "chrono format error: no '%' at start of chrono-specs");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_chrono_io_h5, "chrono format error: invalid  specifier in chrono-specs");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_chrono_io_h6, "chrono format error: invalid  modifier in chrono-specs");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_chrono_io_h7, "chrono format error: format argument does not contain the information required by the chrono-specs");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_chrono_io_h8, "chrono format error: unescaped '%' in chrono-specs");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_chrono_io_h9, "chrono format error: argument is not a duration");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_chrono_io_h10, "format error: invalid weekday");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_chrono_io_h11, "format error: invalid month");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_chrono_io_h12, "format error: argument is not a duration");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_chrono_io_h13, "format error: invalid precision for duration");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -192,19 +213,17 @@ namespace __format
+   [[noreturn,__gnu__::__always_inline__]]
+   inline void
+   __no_timezone_available()
+-  { __throw_format_error("format error: no timezone available for %Z or %z"); }
++  { __throw_format_error(__eqt_excstr_throwing_bits_chrono_io_h0); }
+ 
+   [[noreturn,__gnu__::__always_inline__]]
+   inline void
+   __not_valid_for_duration()
+-  { __throw_format_error("format error: chrono-format-spec not valid for "
+-			 "chrono::duration"); }
++  { __throw_format_error(__eqt_excstr_throwing_bits_chrono_io_h1); }
+ 
+   [[noreturn,__gnu__::__always_inline__]]
+   inline void
+   __invalid_chrono_spec()
+-  { __throw_format_error("format error: chrono-format-spec not valid for "
+-			 "argument type"); }
++  { __throw_format_error(__eqt_excstr_throwing_bits_chrono_io_h2); }
+ 
+   template<typename _CharT>
+     struct _ChronoSpec : _Spec<_CharT>
+@@ -294,7 +313,7 @@ namespace __format
+ 		__last = __first + __end;
+ 	      }
+ 	    if (__str.find('{') != __str.npos)
+-	      __throw_format_error("chrono format error: '{' in chrono-specs");
++	      __throw_format_error(__eqt_excstr_throwing_bits_chrono_io_h3);
+ 	  }
+ 
+ 	  // Parse chrono-specs in [first,last), checking each conversion-spec
+@@ -303,8 +322,7 @@ namespace __format
+ 
+ 	  const auto __chrono_specs = __first++; // Skip leading '%'
+ 	  if (*__chrono_specs != '%')
+-	    __throw_format_error("chrono format error: no '%' at start of "
+-				     "chrono-specs");
++	    __throw_format_error(__eqt_excstr_throwing_bits_chrono_io_h4);
+ 
+ 	  _CharT __mod{};
+ 	  bool __conv = true;
+@@ -427,20 +445,16 @@ namespace __format
+ 		  __mod = __c;
+ 		  continue;
+ 		default:
+-		  __throw_format_error("chrono format error: invalid "
+-				       " specifier in chrono-specs");
++		  __throw_format_error(__eqt_excstr_throwing_bits_chrono_io_h5);
+ 		}
+ 
+ 	      if ((__mod == 'E' && !(__allowed_mods & _Mod_E))
+ 		    || (__mod == 'O' && !(__allowed_mods & _Mod_O)))
+-		__throw_format_error("chrono format error: invalid "
+-				     " modifier in chrono-specs");
++		__throw_format_error(__eqt_excstr_throwing_bits_chrono_io_h6);
+ 	      __mod = _CharT();
+ 
+ 	      if ((__parts & __needed) != __needed)
+-		__throw_format_error("chrono format error: format argument "
+-				     "does not contain the information "
+-				     "required by the chrono-specs");
++		__throw_format_error(__eqt_excstr_throwing_bits_chrono_io_h7);
+ 
+ 	      // Scan for next '%', ignoring literal-chars before it.
+ 	      size_t __pos = __string_view(__first, __last - __first).find('%');
+@@ -460,8 +474,7 @@ namespace __format
+ 
+ 	  // Check for a '%' conversion-spec without a type.
+ 	  if (__conv || __mod != _CharT())
+-	    __throw_format_error("chrono format error: unescaped '%' in "
+-				 "chrono-specs");
++	    __throw_format_error(__eqt_excstr_throwing_bits_chrono_io_h8);
+ 
+ 	  _M_spec = __spec;
+ 	  _M_spec._M_chrono_specs
+@@ -585,8 +598,7 @@ namespace __format
+ 		    __out = std::format_to(__print_sign(), _S_empty_spec,
+ 					   __t.count());
+ 		  else
+-		    __throw_format_error("chrono format error: argument is "
+-					 "not a duration");
++		    __throw_format_error(__eqt_excstr_throwing_bits_chrono_io_h9);
+ 		  break;
+ 		case 'r':
+ 		  __out = _M_r(__t, __print_sign(), __fc);
+@@ -774,7 +786,7 @@ namespace __format
+ 	  // %A Locale's full weekday name.
+ 	  chrono::weekday __wd = _S_weekday(__t);
+ 	  if (!__wd.ok())
+-	    __throw_format_error("format error: invalid weekday");
++	    __throw_format_error(__eqt_excstr_throwing_bits_chrono_io_h10);
+ 
+ 	  locale __loc = _M_locale(__ctx);
+ 	  const auto& __tp = use_facet<__timepunct<_CharT>>(__loc);
+@@ -796,7 +808,7 @@ namespace __format
+ 	  // %B Locale's full month name.
+ 	  chrono::month __m = _S_month(__t);
+ 	  if (!__m.ok())
+-	    __throw_format_error("format error: invalid month");
++	    __throw_format_error(__eqt_excstr_throwing_bits_chrono_io_h11);
+ 	  locale __loc = _M_locale(__ctx);
+ 	  const auto& __tp = use_facet<__timepunct<_CharT>>(__loc);
+ 	  const _CharT* __months[12];
+@@ -1095,7 +1107,7 @@ namespace __format
+ 	{
+ 	  // %q The duration's unit suffix
+ 	  if constexpr (!chrono::__is_duration_v<_Tp>)
+-	    __throw_format_error("format error: argument is not a duration");
++	    __throw_format_error(__eqt_excstr_throwing_bits_chrono_io_h12);
+ 	  else
+ 	    {
+ 	      namespace __d = chrono::__detail;
+@@ -1623,7 +1635,7 @@ namespace __format
+ 	auto __it = _M_f._M_parse(__pc, _Duration|_TimeOfDay);
+ 	if constexpr (!is_floating_point_v<_Rep>)
+ 	  if (_M_f._M_spec._M_prec_kind != __format::_WP_none)
+-	    __throw_format_error("format error: invalid precision for duration");
++	    __throw_format_error(__eqt_excstr_throwing_bits_chrono_io_h13);
+ 	return __it;
+       }
+ 
+diff --git a/libstdc++-v3/include/bits/cow_string.h b/libstdc++-v3/include/bits/cow_string.h
+index 16da60a2314..092e16ef41a 100644
+--- a/libstdc++-v3/include/bits/cow_string.h
++++ b/libstdc++-v3/include/bits/cow_string.h
+@@ -36,6 +36,28 @@
+ 
+ #include <ext/atomicity.h> // _Atomic_word, __is_single_threaded
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_cow_string_h0, __N("%s: __pos (which is %zu) > this->size() (which is %zu)"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_cow_string_h1, __N("basic_string::at: __n (which is %zu) >= this->size() (which is %zu)"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_cow_string_h2, "basic_string::insert");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_cow_string_h3, "basic_string::erase");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_cow_string_h4, "basic_string::replace");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_cow_string_h5, "basic_string::substr");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_cow_string_h6, "basic_string::compare");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_cow_string_h7, __N("basic_string::_S_construct null not valid"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_cow_string_h8, "basic_string::assign");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_cow_string_h9, "basic_string::append");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_cow_string_h10, __N("basic_string::_S_create"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_cow_string_h11, "basic_string::resize");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_cow_string_h12, "basic_string::_M_replace_dispatch");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_cow_string_h13, "basic_string::_M_replace_aux");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_cow_string_h14, "basic_string::copy");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -358,8 +380,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       _M_check(size_type __pos, const char* __s) const
+       {
+ 	if (__pos > this->size())
+-	  __throw_out_of_range_fmt(__N("%s: __pos (which is %zu) > "
+-				       "this->size() (which is %zu)"),
++	  __throw_out_of_range_fmt(__eqt_excstr_throwing_bits_cow_string_h0,
+ 				   __s, __pos, this->size());
+ 	return __pos;
+       }
+@@ -1123,9 +1144,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       at(size_type __n) const
+       {
+ 	if (__n >= this->size())
+-	  __throw_out_of_range_fmt(__N("basic_string::at: __n "
+-				       "(which is %zu) >= this->size() "
+-				       "(which is %zu)"),
++	  __throw_out_of_range_fmt(__eqt_excstr_throwing_bits_cow_string_h1,
+ 				   __n, this->size());
+ 	return _M_data()[__n];
+       }
+@@ -1145,9 +1164,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       at(size_type __n)
+       {
+ 	if (__n >= size())
+-	  __throw_out_of_range_fmt(__N("basic_string::at: __n "
+-				       "(which is %zu) >= this->size() "
+-				       "(which is %zu)"),
++	  __throw_out_of_range_fmt(__eqt_excstr_throwing_bits_cow_string_h1,
+ 				   __n, this->size());
+ 	_M_leak();
+ 	return _M_data()[__n];
+@@ -1672,7 +1689,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       */
+       basic_string&
+       insert(size_type __pos, size_type __n, _CharT __c)
+-      { return _M_replace_aux(_M_check(__pos, "basic_string::insert"),
++      { return _M_replace_aux(_M_check(__pos, __eqt_excstr_throwing_bits_cow_string_h2),
+ 			      size_type(0), __n, __c); }
+ 
+       /**
+@@ -1751,7 +1768,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       basic_string&
+       erase(size_type __pos = 0, size_type __n = npos)
+       {
+-	_M_mutate(_M_check(__pos, "basic_string::erase"),
++	_M_mutate(_M_check(__pos, __eqt_excstr_throwing_bits_cow_string_h3),
+ 		  _M_limit(__pos, __n), size_type(0));
+ 	return *this;
+       }
+@@ -1911,7 +1928,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       */
+       basic_string&
+       replace(size_type __pos, size_type __n1, size_type __n2, _CharT __c)
+-      { return _M_replace_aux(_M_check(__pos, "basic_string::replace"),
++      { return _M_replace_aux(_M_check(__pos, __eqt_excstr_throwing_bits_cow_string_h4),
+ 			      _M_limit(__pos, __n1), __n2, __c); }
+ 
+       /**
+@@ -2785,7 +2802,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       basic_string
+       substr(size_type __pos = 0, size_type __n = npos) const
+       { return basic_string(*this,
+-			    _M_check(__pos, "basic_string::substr"), __n); }
++			    _M_check(__pos, __eqt_excstr_throwing_bits_cow_string_h5), __n); }
+ 
+       /**
+        *  @brief  Compare to a string.
+@@ -2895,7 +2912,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       int
+       compare(size_type __pos, size_type __n, const basic_string& __str) const
+       {
+-	_M_check(__pos, "basic_string::compare");
++	_M_check(__pos, __eqt_excstr_throwing_bits_cow_string_h6);
+ 	__n = _M_limit(__pos, __n);
+ 	const size_type __osize = __str.size();
+ 	const size_type __len = std::min(__n, __osize);
+@@ -2932,7 +2949,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       compare(size_type __pos1, size_type __n1, const basic_string& __str,
+ 	      size_type __pos2, size_type __n2 = npos) const
+       {
+-	_M_check(__pos1, "basic_string::compare");
++	_M_check(__pos1, __eqt_excstr_throwing_bits_cow_string_h6);
+ 	__str._M_check(__pos2, "basic_string::compare");
+ 	__n1 = _M_limit(__pos1, __n1);
+ 	__n2 = __str._M_limit(__pos2, __n2);
+@@ -2996,7 +3013,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       compare(size_type __pos, size_type __n1, const _CharT* __s) const
+       {
+ 	__glibcxx_requires_string(__s);
+-	_M_check(__pos, "basic_string::compare");
++	_M_check(__pos, __eqt_excstr_throwing_bits_cow_string_h6);
+ 	__n1 = _M_limit(__pos, __n1);
+ 	const size_type __osize = traits_type::length(__s);
+ 	const size_type __len = std::min(__n1, __osize);
+@@ -3035,7 +3052,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 	      size_type __n2) const
+       {
+ 	__glibcxx_requires_string_len(__s, __n2);
+-	_M_check(__pos, "basic_string::compare");
++	_M_check(__pos, __eqt_excstr_throwing_bits_cow_string_h6);
+ 	__n1 = _M_limit(__pos, __n1);
+ 	const size_type __len = std::min(__n1, __n2);
+ 	int __r = traits_type::compare(_M_data() + __pos, __s, __len);
+@@ -3185,7 +3202,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ #endif
+ 	// NB: Not required, but considered best practice.
+ 	if (__gnu_cxx::__is_null_pointer(__beg) && __beg != __end)
+-	  __throw_logic_error(__N("basic_string::_S_construct null not valid"));
++	  __throw_logic_error(__eqt_excstr_throwing_bits_cow_string_h7);
+ 
+ 	const size_type __dnew = static_cast<size_type>(std::distance(__beg,
+ 								      __end));
+@@ -3273,7 +3290,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     assign(const _CharT* __s, size_type __n)
+     {
+       __glibcxx_requires_string_len(__s, __n);
+-      _M_check_length(this->size(), __n, "basic_string::assign");
++      _M_check_length(this->size(), __n, __eqt_excstr_throwing_bits_cow_string_h8);
+       if (_M_disjunct(__s) || _M_rep()->_M_is_shared())
+ 	return _M_replace_safe(size_type(0), this->size(), __s, __n);
+       else
+@@ -3296,7 +3313,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     {
+       if (__n)
+ 	{
+-	  _M_check_length(size_type(0), __n, "basic_string::append");
++	  _M_check_length(size_type(0), __n, __eqt_excstr_throwing_bits_cow_string_h9);
+ 	  const size_type __len = __n + this->size();
+ 	  if (__len > this->capacity() || _M_rep()->_M_is_shared())
+ 	    this->reserve(__len);
+@@ -3314,7 +3331,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       __glibcxx_requires_string_len(__s, __n);
+       if (__n)
+ 	{
+-	  _M_check_length(size_type(0), __n, "basic_string::append");
++	  _M_check_length(size_type(0), __n, __eqt_excstr_throwing_bits_cow_string_h9);
+ 	  const size_type __len = __n + this->size();
+ 	  if (__len > this->capacity() || _M_rep()->_M_is_shared())
+ 	    {
+@@ -3374,8 +3391,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+      insert(size_type __pos, const _CharT* __s, size_type __n)
+      {
+        __glibcxx_requires_string_len(__s, __n);
+-       _M_check(__pos, "basic_string::insert");
+-       _M_check_length(size_type(0), __n, "basic_string::insert");
++       _M_check(__pos, __eqt_excstr_throwing_bits_cow_string_h2);
++       _M_check_length(size_type(0), __n, __eqt_excstr_throwing_bits_cow_string_h2);
+        if (_M_disjunct(__s) || _M_rep()->_M_is_shared())
+ 	 return _M_replace_safe(__pos, size_type(0), __s, __n);
+        else
+@@ -3429,9 +3446,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 	     size_type __n2)
+      {
+        __glibcxx_requires_string_len(__s, __n2);
+-       _M_check(__pos, "basic_string::replace");
++       _M_check(__pos, __eqt_excstr_throwing_bits_cow_string_h4);
+        __n1 = _M_limit(__pos, __n1);
+-       _M_check_length(__n1, __n2, "basic_string::replace");
++       _M_check_length(__n1, __n2, __eqt_excstr_throwing_bits_cow_string_h4);
+        bool __left;
+        if (_M_disjunct(__s) || _M_rep()->_M_is_shared())
+ 	 return _M_replace_safe(__pos, __n1, __s, __n2);
+@@ -3576,7 +3593,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       // _GLIBCXX_RESOLVE_LIB_DEFECTS
+       // 83.  String::npos vs. string::max_size()
+       if (__capacity > _S_max_size)
+-	__throw_length_error(__N("basic_string::_S_create"));
++	__throw_length_error(__eqt_excstr_throwing_bits_cow_string_h10);
+ 
+       // The standard places no restriction on allocating more memory
+       // than is strictly needed within this layer at the moment or as
+@@ -3667,7 +3684,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     resize(size_type __n, _CharT __c)
+     {
+       const size_type __size = this->size();
+-      _M_check_length(__size, __n, "basic_string::resize");
++      _M_check_length(__size, __n, __eqt_excstr_throwing_bits_cow_string_h11);
+       if (__size < __n)
+ 	this->append(__n - __size, __c);
+       else if (__n < __size)
+@@ -3684,7 +3701,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       {
+ 	const basic_string __s(__k1, __k2);
+ 	const size_type __n1 = __i2 - __i1;
+-	_M_check_length(__n1, __s.size(), "basic_string::_M_replace_dispatch");
++	_M_check_length(__n1, __s.size(), __eqt_excstr_throwing_bits_cow_string_h12);
+ 	return _M_replace_safe(__i1 - _M_ibegin(), __n1, __s._M_data(),
+ 			       __s.size());
+       }
+@@ -3695,7 +3712,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     _M_replace_aux(size_type __pos1, size_type __n1, size_type __n2,
+ 		   _CharT __c)
+     {
+-      _M_check_length(__n1, __n2, "basic_string::_M_replace_aux");
++      _M_check_length(__n1, __n2, __eqt_excstr_throwing_bits_cow_string_h13);
+       _M_mutate(__pos1, __n1, __n2);
+       if (__n2)
+ 	_M_assign(_M_data() + __pos1, __n2, __c);
+@@ -3740,7 +3757,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     basic_string<_CharT, _Traits, _Alloc>::
+     copy(_CharT* __s, size_type __n, size_type __pos) const
+     {
+-      _M_check(__pos, "basic_string::copy");
++      _M_check(__pos, __eqt_excstr_throwing_bits_cow_string_h14);
+       __n = _M_limit(__pos, __n);
+       __glibcxx_requires_string_len(__s, __n);
+       if (__n)
+diff --git a/libstdc++-v3/include/bits/deque.tcc b/libstdc++-v3/include/bits/deque.tcc
+index 1593d8403eb..91f037f9f1d 100644
+--- a/libstdc++-v3/include/bits/deque.tcc
++++ b/libstdc++-v3/include/bits/deque.tcc
+@@ -58,6 +58,16 @@
+ 
+ #include <bits/stl_algobase.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_deque_tcc0, __N("cannot create std::deque larger than max_size()"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_deque_tcc1, __N("deque::_M_new_elements_at_front"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_deque_tcc2, __N("deque::_M_new_elements_at_back"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -491,7 +501,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       {
+ 	if (size() == max_size())
+ 	  __throw_length_error(
+-	      __N("cannot create std::deque larger than max_size()"));
++	      __eqt_excstr_throwing_bits_deque_tcc0);
+ 
+ 	_M_reserve_map_at_back();
+ 	*(this->_M_impl._M_finish._M_node + 1) = this->_M_allocate_node();
+@@ -530,7 +540,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       {
+ 	if (size() == max_size())
+ 	  __throw_length_error(
+-	      __N("cannot create std::deque larger than max_size()"));
++	      __eqt_excstr_throwing_bits_deque_tcc0);
+ 
+ 	_M_reserve_map_at_front();
+ 	*(this->_M_impl._M_start._M_node - 1) = this->_M_allocate_node();
+@@ -885,7 +895,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+     _M_new_elements_at_front(size_type __new_elems)
+     {
+       if (this->max_size() - this->size() < __new_elems)
+-	__throw_length_error(__N("deque::_M_new_elements_at_front"));
++	__throw_length_error(__eqt_excstr_throwing_bits_deque_tcc1);
+ 
+       const size_type __new_nodes = ((__new_elems + _S_buffer_size() - 1)
+ 				     / _S_buffer_size());
+@@ -910,7 +920,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+     _M_new_elements_at_back(size_type __new_elems)
+     {
+       if (this->max_size() - this->size() < __new_elems)
+-	__throw_length_error(__N("deque::_M_new_elements_at_back"));
++	__throw_length_error(__eqt_excstr_throwing_bits_deque_tcc2);
+ 
+       const size_type __new_nodes = ((__new_elems + _S_buffer_size() - 1)
+ 				     / _S_buffer_size());
+diff --git a/libstdc++-v3/include/bits/fstream.tcc b/libstdc++-v3/include/bits/fstream.tcc
+index a5accecd846..9a419729216 100644
+--- a/libstdc++-v3/include/bits/fstream.tcc
++++ b/libstdc++-v3/include/bits/fstream.tcc
+@@ -40,6 +40,19 @@
+ #include <bits/move.h>   // for swap
+ #include <cerrno>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_fstream_tcc0, __N("basic_filebuf::underflow codecvt::max_length() is not valid"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_fstream_tcc1, __N("basic_filebuf::underflow incomplete character in file"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_fstream_tcc2, __N("basic_filebuf::underflow invalid byte sequence in file"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_fstream_tcc3, __N("basic_filebuf::underflow error reading the file"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_fstream_tcc4, __N("basic_filebuf::_M_convert_to_external conversion error"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_fstream_tcc5, __N("basic_filebuf::xsgetn error reading the file"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -406,9 +419,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 		      // codecvt::max_length() is bogus.
+ 		      if (_M_ext_end - _M_ext_buf + __rlen > _M_ext_buf_size)
+ 			{
+-			  __throw_ios_failure(__N("basic_filebuf::underflow "
+-					      "codecvt::max_length() "
+-					      "is not valid"));
++			  __throw_ios_failure(__eqt_excstr_throwing_bits_fstream_tcc0);
+ 			}
+ 		      streamsize __elen = _M_file.xsgetn(_M_ext_end, __rlen);
+ 		      if (__elen == 0)
+@@ -463,15 +474,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 	      // However, reaching it while looping on partial means that
+ 	      // the file has got an incomplete character.
+ 	      if (__r == codecvt_base::partial)
+-		__throw_ios_failure(__N("basic_filebuf::underflow "
+-				    "incomplete character in file"));
++		__throw_ios_failure(__eqt_excstr_throwing_bits_fstream_tcc1);
+ 	    }
+ 	  else if (__r == codecvt_base::error)
+-	    __throw_ios_failure(__N("basic_filebuf::underflow "
+-				"invalid byte sequence in file"));
++	    __throw_ios_failure(__eqt_excstr_throwing_bits_fstream_tcc2);
+ 	  else
+-	    __throw_ios_failure(__N("basic_filebuf::underflow "
+-				"error reading the file"), errno);
++	    __throw_ios_failure(__eqt_excstr_throwing_bits_fstream_tcc3, errno);
+ 	}
+       return __ret;
+     }
+@@ -635,8 +643,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 	      __blen = __ilen;
+ 	    }
+ 	  else
+-	    __throw_ios_failure(__N("basic_filebuf::_M_convert_to_external "
+-				    "conversion error"));
++	    __throw_ios_failure(__eqt_excstr_throwing_bits_fstream_tcc4);
+   
+ 	  __elen = _M_file.xsputn(__buf, __blen);
+ 	  __plen = __blen;
+@@ -656,8 +663,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 		  __plen = __rlen;
+ 		}
+ 	      else
+-		__throw_ios_failure(__N("basic_filebuf::_M_convert_to_external "
+-					"conversion error"));
++		__throw_ios_failure(__eqt_excstr_throwing_bits_fstream_tcc4);
+ 	    }
+ 	}
+       return __elen == __plen;
+@@ -716,8 +722,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 	    {
+ 	      __len = _M_file.xsgetn(reinterpret_cast<char*>(__s), __n);
+ 	      if (__len == -1)
+-		__throw_ios_failure(__N("basic_filebuf::xsgetn "
+-					"error reading the file"), errno);
++		__throw_ios_failure(__eqt_excstr_throwing_bits_fstream_tcc5, errno);
+ 	      if (__len == 0)
+ 		break;
+  
+diff --git a/libstdc++-v3/include/bits/hashtable_policy.h b/libstdc++-v3/include/bits/hashtable_policy.h
+index 879f7293232..f4b23a0fa59 100644
+--- a/libstdc++-v3/include/bits/hashtable_policy.h
++++ b/libstdc++-v3/include/bits/hashtable_policy.h
+@@ -39,6 +39,14 @@
+ #include <ext/alloc_traits.h>	// for std::__alloc_rebind
+ #include <ext/numeric_traits.h>	// for __gnu_cxx::__int_traits
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_hashtable_policy_h0, __N("unordered_map::at"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -853,7 +861,7 @@ namespace __detail
+       {
+ 	auto __ite = static_cast<__hashtable*>(this)->find(__k);
+ 	if (!__ite._M_cur)
+-	  __throw_out_of_range(__N("unordered_map::at"));
++	  __throw_out_of_range(__eqt_excstr_throwing_bits_hashtable_policy_h0);
+ 	return __ite->second;
+       }
+ 
+@@ -862,7 +870,7 @@ namespace __detail
+       {
+ 	auto __ite = static_cast<const __hashtable*>(this)->find(__k);
+ 	if (!__ite._M_cur)
+-	  __throw_out_of_range(__N("unordered_map::at"));
++	  __throw_out_of_range(__eqt_excstr_throwing_bits_hashtable_policy_h0);
+ 	return __ite->second;
+       }
+     };
+diff --git a/libstdc++-v3/include/bits/locale_conv.h b/libstdc++-v3/include/bits/locale_conv.h
+index 754c36b92b8..ba9fe1daed7 100644
+--- a/libstdc++-v3/include/bits/locale_conv.h
++++ b/libstdc++-v3/include/bits/locale_conv.h
+@@ -39,6 +39,15 @@
+ #include <bits/allocator.h>
+ #include <bits/codecvt.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_locale_conv_h0, "wstring_convert::from_bytes");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_locale_conv_h1, "wstring_convert::to_bytes");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -343,7 +352,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+ 	  return __out;
+ 	if (_M_with_strings)
+ 	  return _M_wide_err_string;
+-	__throw_range_error("wstring_convert::from_bytes");
++	__throw_range_error(__eqt_excstr_throwing_bits_locale_conv_h0);
+       }
+       /// @}
+ 
+@@ -379,7 +388,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+ 	  return __out;
+ 	if (_M_with_strings)
+ 	  return _M_byte_err_string;
+-	__throw_range_error("wstring_convert::to_bytes");
++	__throw_range_error(__eqt_excstr_throwing_bits_locale_conv_h1);
+       }
+       /// @}
+ 
+diff --git a/libstdc++-v3/include/bits/regex_automaton.h b/libstdc++-v3/include/bits/regex_automaton.h
+index 574ec90dc3a..be800d4a058 100644
+--- a/libstdc++-v3/include/bits/regex_automaton.h
++++ b/libstdc++-v3/include/bits/regex_automaton.h
+@@ -33,6 +33,14 @@
+ #define _GLIBCXX_REGEX_STATE_LIMIT 100000
+ #endif
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_automaton_h0, "Number of NFA states exceeds limit. Please use shorter regex string, or use smaller brace expression, or make _GLIBCXX_REGEX_STATE_LIMIT larger.");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -329,9 +337,7 @@ namespace __detail
+ 	if (this->size() > _GLIBCXX_REGEX_STATE_LIMIT)
+ 	  __throw_regex_error(
+ 	    regex_constants::error_space,
+-	    "Number of NFA states exceeds limit. Please use shorter regex "
+-	    "string, or use smaller brace expression, or make "
+-	    "_GLIBCXX_REGEX_STATE_LIMIT larger.");
++	    __eqt_excstr_throwing_bits_regex_automaton_h0);
+ 	return this->size() - 1;
+       }
+ 
+diff --git a/libstdc++-v3/include/bits/regex_automaton.tcc b/libstdc++-v3/include/bits/regex_automaton.tcc
+index ff7b6277557..4dcf3e907e2 100644
+--- a/libstdc++-v3/include/bits/regex_automaton.tcc
++++ b/libstdc++-v3/include/bits/regex_automaton.tcc
+@@ -28,6 +28,16 @@
+  *  Do not attempt to use it directly. @headername{regex}
+  */
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_automaton_tcc0, "Unexpected back-reference in polynomial mode.");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_automaton_tcc1, "Back-reference index exceeds current sub-expression count.");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_automaton_tcc2, "Back-reference referred to an opened sub-expression.");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -150,7 +160,7 @@ namespace __detail
+     {
+       if (this->_M_flags & regex_constants::__polynomial)
+ 	__throw_regex_error(regex_constants::error_complexity,
+-			    "Unexpected back-reference in polynomial mode.");
++			    __eqt_excstr_throwing_bits_regex_automaton_tcc0);
+       // To figure out whether a backref is valid, a stack is used to store
+       // unfinished sub-expressions. For example, when parsing
+       // "(a(b)(c\\1(d)))" at '\\1', _M_subexpr_count is 3, indicating that 3
+@@ -161,12 +171,12 @@ namespace __detail
+       if (__index >= _M_subexpr_count)
+ 	__throw_regex_error(
+ 	  regex_constants::error_backref,
+-	  "Back-reference index exceeds current sub-expression count.");
++	  __eqt_excstr_throwing_bits_regex_automaton_tcc1);
+       for (auto __it : this->_M_paren_stack)
+ 	if (__index == __it)
+ 	  __throw_regex_error(
+ 	    regex_constants::error_backref,
+-	    "Back-reference referred to an opened sub-expression.");
++	    __eqt_excstr_throwing_bits_regex_automaton_tcc2);
+       this->_M_has_backref = true;
+       _StateT __tmp(_S_opcode_backref);
+       __tmp._M_backref_index = __index;
+diff --git a/libstdc++-v3/include/bits/regex_compiler.h b/libstdc++-v3/include/bits/regex_compiler.h
+index 413952e7ab8..d5dc2598897 100644
+--- a/libstdc++-v3/include/bits/regex_compiler.h
++++ b/libstdc++-v3/include/bits/regex_compiler.h
+@@ -28,6 +28,18 @@
+  *  Do not attempt to use it directly. @headername{regex}
+  */
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_compiler_h0, "conflicting grammar options");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_compiler_h1, "Invalid collate element.");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_compiler_h2, "Invalid equivalence class.");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_compiler_h3, "Invalid character class.");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_compiler_h4, "Invalid range in bracket expression.");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -194,7 +206,7 @@ namespace __detail
+ 	    return __f | ECMAScript;
+ #pragma GCC diagnostic pop
+ 	  default:
+-	    std::__throw_regex_error(_S_grammar, "conflicting grammar options");
++	    std::__throw_regex_error(_S_grammar, __eqt_excstr_throwing_bits_regex_compiler_h0);
+ 	  }
+       }
+ 
+@@ -461,7 +473,7 @@ namespace __detail
+ 						 __s.data() + __s.size());
+ 	if (__st.empty())
+ 	  __throw_regex_error(regex_constants::error_collate,
+-			      "Invalid collate element.");
++			      __eqt_excstr_throwing_bits_regex_compiler_h1);
+ 	_M_char_set.push_back(_M_translator._M_translate(__st[0]));
+ 	_GLIBCXX_DEBUG_ONLY(_M_is_ready = false);
+ 	return __st;
+@@ -474,7 +486,7 @@ namespace __detail
+ 						 __s.data() + __s.size());
+ 	if (__st.empty())
+ 	  __throw_regex_error(regex_constants::error_collate,
+-			      "Invalid equivalence class.");
++			      __eqt_excstr_throwing_bits_regex_compiler_h2);
+ 	__st = _M_traits.transform_primary(__st.data(),
+ 					   __st.data() + __st.size());
+ 	_M_equiv_set.push_back(__st);
+@@ -490,7 +502,7 @@ namespace __detail
+ 						 __icase);
+ 	if (__mask == 0)
+ 	  __throw_regex_error(regex_constants::error_collate,
+-			      "Invalid character class.");
++			      __eqt_excstr_throwing_bits_regex_compiler_h3);
+ 	if (!__neg)
+ 	  _M_class_set |= __mask;
+ 	else
+@@ -503,7 +515,7 @@ namespace __detail
+       {
+ 	if (__l > __r)
+ 	  __throw_regex_error(regex_constants::error_range,
+-			      "Invalid range in bracket expression.");
++			      __eqt_excstr_throwing_bits_regex_compiler_h4);
+ 	_M_range_set.push_back(make_pair(_M_translator._M_transform(__l),
+ 					 _M_translator._M_transform(__r)));
+ 	_GLIBCXX_DEBUG_ONLY(_M_is_ready = false);
+diff --git a/libstdc++-v3/include/bits/regex_compiler.tcc b/libstdc++-v3/include/bits/regex_compiler.tcc
+index 3c6cb6649df..8e787f22eae 100644
+--- a/libstdc++-v3/include/bits/regex_compiler.tcc
++++ b/libstdc++-v3/include/bits/regex_compiler.tcc
+@@ -55,6 +55,18 @@
+ // All dummy nodes will be eliminated at the end of compilation.
+ */
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_compiler_tcc0, "Invalid start of '[x-x]' range in regular expression");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_compiler_tcc1, "Invalid end of '[x-x]' range in regular expression");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_compiler_tcc2, "Invalid location of '-' within '[...]' in POSIX regular expression");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_compiler_tcc3, "Unexpected character within '[...]' in regular expression");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_compiler_tcc4, "invalid back reference");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -495,8 +507,7 @@ namespace __detail
+ 	    {
+ 	      // "\\w-" is invalid, start of range must be a single char.
+ 	      __throw_regex_error(regex_constants::error_range,
+-				  "Invalid start of '[x-x]' range in "
+-				  "regular expression");
++				  __eqt_excstr_throwing_bits_regex_compiler_tcc0);
+ 	    }
+ 	  else if (__last_char._M_is_char())
+ 	    {
+@@ -514,8 +525,7 @@ namespace __detail
+ 		}
+ 	      else
+ 		__throw_regex_error(regex_constants::error_range,
+-				    "Invalid end of '[x-x]' range in "
+-				    "regular expression");
++				    __eqt_excstr_throwing_bits_regex_compiler_tcc1);
+ 	    }
+ 	  else if (_M_flags & regex_constants::ECMAScript)
+ 	    {
+@@ -526,8 +536,7 @@ namespace __detail
+ 	    }
+ 	  else
+ 	    __throw_regex_error(regex_constants::error_range,
+-				"Invalid location of '-' within '[...]' in "
+-				"POSIX regular expression");
++				__eqt_excstr_throwing_bits_regex_compiler_tcc2);
+ 	}
+       else if (_M_match_token(_ScannerT::_S_token_quoted_class))
+ 	{
+@@ -538,8 +547,7 @@ namespace __detail
+ 	}
+       else
+ 	__throw_regex_error(regex_constants::error_brack,
+-			    "Unexpected character within '[...]' in "
+-			    "regular expression");
++			    __eqt_excstr_throwing_bits_regex_compiler_tcc3);
+       return true;
+     }
+ 
+@@ -588,7 +596,7 @@ namespace __detail
+ 	if (__builtin_mul_overflow(__v, __radix, &__v)
+ 	    || __builtin_add_overflow(__v, _M_traits.value(__c, __radix), &__v))
+ 	    std::__throw_regex_error(regex_constants::error_backref,
+-				     "invalid back reference");
++				     __eqt_excstr_throwing_bits_regex_compiler_tcc4);
+       return __v;
+     }
+ 
+diff --git a/libstdc++-v3/include/bits/regex_scanner.tcc b/libstdc++-v3/include/bits/regex_scanner.tcc
+index 81d450b81ef..3c3b24c2c8d 100644
+--- a/libstdc++-v3/include/bits/regex_scanner.tcc
++++ b/libstdc++-v3/include/bits/regex_scanner.tcc
+@@ -46,6 +46,17 @@
+ //
+ // awk: http://pubs.opengroup.org/onlinepubs/000095399/utilities/awk.html
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_scanner_tcc0, "Invalid escape at end of regular expression");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_scanner_tcc1, "Invalid '(?...)' zero-width assertion in regular expression");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_scanner_tcc2, "Incomplete '[[' character class in regular expression");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_regex_scanner_tcc3, "invalid '\\cX' control character in regular expression");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -108,7 +119,7 @@ namespace __detail
+ 	  if (_M_current == _M_end)
+ 	    __throw_regex_error(
+ 	      regex_constants::error_escape,
+-	      "Invalid escape at end of regular expression");
++	      __eqt_excstr_throwing_bits_regex_scanner_tcc0);
+ 
+ 	  if (!_M_is_basic()
+ 	      || (*_M_current != '('
+@@ -146,8 +157,7 @@ namespace __detail
+ 		}
+ 	      else
+ 		__throw_regex_error(regex_constants::error_paren,
+-				    "Invalid '(?...)' zero-width assertion "
+-				    "in regular expression");
++				    __eqt_excstr_throwing_bits_regex_scanner_tcc1);
+ 	    }
+ 	  else if (_M_flags & regex_constants::nosubs)
+ 	    _M_token = _S_token_subexpr_no_group_begin;
+@@ -218,8 +228,7 @@ namespace __detail
+ 	{
+ 	  if (_M_current == _M_end)
+ 	    __throw_regex_error(regex_constants::error_brack,
+-				"Incomplete '[[' character class in "
+-				"regular expression");
++				__eqt_excstr_throwing_bits_regex_scanner_tcc2);
+ 
+ 	  if (*_M_current == '.')
+ 	    {
+@@ -345,8 +354,7 @@ namespace __detail
+ 	{
+ 	  if (_M_current == _M_end)
+ 	    __throw_regex_error(regex_constants::error_escape,
+-				"invalid '\\cX' control character in "
+-				"regular expression");
++				__eqt_excstr_throwing_bits_regex_scanner_tcc3);
+ 	  _M_token = _S_token_ord_char;
+ 	  _M_value.assign(1, *_M_current++);
+ 	}
+diff --git a/libstdc++-v3/include/bits/stl_bvector.h b/libstdc++-v3/include/bits/stl_bvector.h
+index a19e541b0d5..49c7dd34626 100644
+--- a/libstdc++-v3/include/bits/stl_bvector.h
++++ b/libstdc++-v3/include/bits/stl_bvector.h
+@@ -65,6 +65,15 @@
+ #include <bits/functional_hash.h>
+ #endif
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_stl_bvector_h0, __N("vector<bool>::_M_range_check: __n (which is %zu) >= this->size() (which is %zu)"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_stl_bvector_h1, __N("vector::reserve"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -1097,9 +1106,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       _M_range_check(size_type __n) const
+       {
+ 	if (__n >= this->size())
+-	  __throw_out_of_range_fmt(__N("vector<bool>::_M_range_check: __n "
+-				       "(which is %zu) >= this->size() "
+-				       "(which is %zu)"),
++	  __throw_out_of_range_fmt(__eqt_excstr_throwing_bits_stl_bvector_h0,
+ 				   __n, this->size());
+       }
+ 
+@@ -1125,7 +1132,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       reserve(size_type __n)
+       {
+ 	if (__n > max_size())
+-	  __throw_length_error(__N("vector::reserve"));
++	  __throw_length_error(__eqt_excstr_throwing_bits_stl_bvector_h1);
+ 	if (capacity() < __n)
+ 	  _M_reallocate(__n);
+       }
+diff --git a/libstdc++-v3/include/bits/stl_deque.h b/libstdc++-v3/include/bits/stl_deque.h
+index a36c85c1fe4..55289db28f6 100644
+--- a/libstdc++-v3/include/bits/stl_deque.h
++++ b/libstdc++-v3/include/bits/stl_deque.h
+@@ -69,6 +69,15 @@
+ 
+ #include <debug/assertions.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_stl_deque_h0, __N("deque::_M_range_check: __n (which is %zu)>= this->size() (which is %zu)"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_stl_deque_h1, __N("cannot create std::deque larger than max_size()"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -1392,9 +1401,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       _M_range_check(size_type __n) const
+       {
+ 	if (__n >= this->size())
+-	  __throw_out_of_range_fmt(__N("deque::_M_range_check: __n "
+-				       "(which is %zu)>= this->size() "
+-				       "(which is %zu)"),
++	  __throw_out_of_range_fmt(__eqt_excstr_throwing_bits_stl_deque_h0,
+ 				   __n, this->size());
+       }
+ 
+@@ -1868,7 +1875,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       {
+ 	if (__n > _S_max_size(__a))
+ 	  __throw_length_error(
+-	      __N("cannot create std::deque larger than max_size()"));
++	      __eqt_excstr_throwing_bits_stl_deque_h1);
+ 	return __n;
+       }
+ 
+diff --git a/libstdc++-v3/include/bits/stl_map.h b/libstdc++-v3/include/bits/stl_map.h
+index 1e3bd545f43..ac97b801c68 100644
+--- a/libstdc++-v3/include/bits/stl_map.h
++++ b/libstdc++-v3/include/bits/stl_map.h
+@@ -63,6 +63,14 @@
+ #include <tuple>
+ #endif
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_stl_map_h0, __N("map::at"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -550,7 +558,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       {
+ 	iterator __i = lower_bound(__k);
+ 	if (__i == end() || key_comp()(__k, (*__i).first))
+-	  __throw_out_of_range(__N("map::at"));
++	  __throw_out_of_range(__eqt_excstr_throwing_bits_stl_map_h0);
+ 	return (*__i).second;
+       }
+ 
+@@ -559,7 +567,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       {
+ 	const_iterator __i = lower_bound(__k);
+ 	if (__i == end() || key_comp()(__k, (*__i).first))
+-	  __throw_out_of_range(__N("map::at"));
++	  __throw_out_of_range(__eqt_excstr_throwing_bits_stl_map_h0);
+ 	return (*__i).second;
+       }
+ 
+diff --git a/libstdc++-v3/include/bits/stl_vector.h b/libstdc++-v3/include/bits/stl_vector.h
+index b6a23f0af9c..333909e8aa3 100644
+--- a/libstdc++-v3/include/bits/stl_vector.h
++++ b/libstdc++-v3/include/bits/stl_vector.h
+@@ -77,6 +77,15 @@ __sanitizer_annotate_contiguous_container(const void*, const void*,
+ 					  const void*, const void*);
+ #endif
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_stl_vector_h0, __N("vector::_M_range_check: __n (which is %zu) >= this->size() (which is %zu)"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_stl_vector_h1, __N("cannot create std::vector larger than max_size()"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -1170,9 +1179,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       _M_range_check(size_type __n) const
+       {
+ 	if (__n >= this->size())
+-	  __throw_out_of_range_fmt(__N("vector::_M_range_check: __n "
+-				       "(which is %zu) >= this->size() "
+-				       "(which is %zu)"),
++	  __throw_out_of_range_fmt(__eqt_excstr_throwing_bits_stl_vector_h0,
+ 				   __n, this->size());
+       }
+ 
+@@ -1944,7 +1951,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       {
+ 	if (__n > _S_max_size(_Tp_alloc_type(__a)))
+ 	  __throw_length_error(
+-	      __N("cannot create std::vector larger than max_size()"));
++	      __eqt_excstr_throwing_bits_stl_vector_h1);
+ 	return __n;
+       }
+ 
+diff --git a/libstdc++-v3/include/bits/vector.tcc b/libstdc++-v3/include/bits/vector.tcc
+index 8a98d0ddf6c..c698176f473 100644
+--- a/libstdc++-v3/include/bits/vector.tcc
++++ b/libstdc++-v3/include/bits/vector.tcc
+@@ -56,6 +56,23 @@
+ #ifndef _VECTOR_TCC
+ #define _VECTOR_TCC 1
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_vector_tcc0, __N("vector::reserve"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_vector_tcc1, "vector::_M_realloc_insert");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_vector_tcc2, "vector::_M_realloc_append");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_vector_tcc3, "vector::_M_fill_insert");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_vector_tcc4, "vector::_M_fill_append");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_vector_tcc5, "vector::_M_default_append");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_vector_tcc6, "vector::_M_range_insert");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_vector_tcc7, "vector<bool>::_M_fill_insert");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_vector_tcc8, "vector<bool>::_M_insert_range");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_bits_vector_tcc9, "vector<bool>::_M_insert_aux");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -68,7 +85,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+     reserve(size_type __n)
+     {
+       if (__n > this->max_size())
+-	__throw_length_error(__N("vector::reserve"));
++	__throw_length_error(__eqt_excstr_throwing_bits_vector_tcc0);
+       if (this->capacity() < __n)
+ 	{
+ 	  const size_type __old_size = size();
+@@ -458,7 +475,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+     _M_realloc_insert(iterator __position, const _Tp& __x)
+ #endif
+     {
+-      const size_type __len = _M_check_len(1u, "vector::_M_realloc_insert");
++      const size_type __len = _M_check_len(1u, __eqt_excstr_throwing_bits_vector_tcc1);
+       if (__len <= 0)
+ 	__builtin_unreachable ();
+       pointer __old_start = this->_M_impl._M_start;
+@@ -587,7 +604,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+     _M_realloc_append(const _Tp& __x)
+ #endif
+     {
+-      const size_type __len = _M_check_len(1u, "vector::_M_realloc_append");
++      const size_type __len = _M_check_len(1u, __eqt_excstr_throwing_bits_vector_tcc2);
+       if (__len <= 0)
+ 	__builtin_unreachable ();
+       pointer __old_start = this->_M_impl._M_start;
+@@ -755,7 +772,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+ 	      const pointer __pos = __position.base();
+ 
+ 	      const size_type __len =
+-		_M_check_len(__n, "vector::_M_fill_insert");
++		_M_check_len(__n, __eqt_excstr_throwing_bits_vector_tcc3);
+ 	      const size_type __elems_before = __pos - __old_start;
+ 	      pointer __new_start(this->_M_allocate(__len));
+ 	      pointer __new_finish(__new_start);
+@@ -824,7 +841,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+ 	   const size_type __old_size = __old_finish - __old_start;
+ 
+ 	   const size_type __len =
+-	     _M_check_len(__n, "vector::_M_fill_append");
++	     _M_check_len(__n, __eqt_excstr_throwing_bits_vector_tcc4);
+ 	   pointer __new_start(this->_M_allocate(__len));
+ 	   pointer __new_finish(__new_start + __old_size);
+ 	   __try
+@@ -889,7 +906,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+ 	      pointer __old_finish = this->_M_impl._M_finish;
+ 
+ 	      const size_type __len =
+-		_M_check_len(__n, "vector::_M_default_append");
++		_M_check_len(__n, __eqt_excstr_throwing_bits_vector_tcc5);
+ 	      pointer __new_start(this->_M_allocate(__len));
+ 
+ 	      // RAII guard for allocated storage.
+@@ -1065,7 +1082,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+ 		  __builtin_unreachable();
+ 
+ 		const size_type __len =
+-		  _M_check_len(__n, "vector::_M_range_insert");
++		  _M_check_len(__n, __eqt_excstr_throwing_bits_vector_tcc6);
+ #if __cplusplus < 201103L
+ 		if (__len < (__n + (__old_finish - __old_start)))
+ 		  __builtin_unreachable();
+@@ -1145,7 +1162,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       else
+ 	{
+ 	  const size_type __len = 
+-	    _M_check_len(__n, "vector<bool>::_M_fill_insert");
++	    _M_check_len(__n, __eqt_excstr_throwing_bits_vector_tcc7);
+ 	  iterator __begin = begin(), __end = end();
+ 	  _Bit_pointer __q = this->_M_allocate(__len);
+ 	  iterator __start(std::__addressof(*__q), 0);
+@@ -1182,7 +1199,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+ 	    else
+ 	      {
+ 		const size_type __len =
+-		  _M_check_len(__n, "vector<bool>::_M_insert_range");
++		  _M_check_len(__n, __eqt_excstr_throwing_bits_vector_tcc8);
+ 		const iterator __begin = begin(), __end = end();
+ 		_Bit_pointer __q = this->_M_allocate(__len);
+ 		iterator __start(std::__addressof(*__q), 0);
+@@ -1213,7 +1230,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       else
+ 	{
+ 	  const size_type __len =
+-	    _M_check_len(size_type(1), "vector<bool>::_M_insert_aux");
++	    _M_check_len(size_type(1), __eqt_excstr_throwing_bits_vector_tcc9);
+ 	  _Bit_pointer __q = this->_M_allocate(__len);
+ 	  iterator __start(std::__addressof(*__q), 0);
+ 	  iterator __i = _M_copy_aligned(begin(), __position, __start);
+diff --git a/libstdc++-v3/include/experimental/any b/libstdc++-v3/include/experimental/any
+index 27a7a146e53..705fa897e82 100644
+--- a/libstdc++-v3/include/experimental/any
++++ b/libstdc++-v3/include/experimental/any
+@@ -42,6 +42,14 @@
+ #include <bits/move.h>
+ #include <experimental/bits/lfts_config.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_experimental_any0, "bad any_cast");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -69,7 +77,7 @@ inline namespace fundamentals_v1
+   class bad_any_cast : public bad_cast
+   {
+   public:
+-    virtual const char* what() const noexcept { return "bad any_cast"; }
++    virtual const char* what() const noexcept { return __eqt_excstr_exc_what_experimental_any0; }
+   };
+ 
+   /// @cond undocumented
+diff --git a/libstdc++-v3/include/experimental/bits/net.h b/libstdc++-v3/include/experimental/bits/net.h
+index 9697069bb70..201ad8cf888 100644
+--- a/libstdc++-v3/include/experimental/bits/net.h
++++ b/libstdc++-v3/include/experimental/bits/net.h
+@@ -42,6 +42,14 @@
+ # include <concepts>
+ #endif
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_experimental_bits_net_h0, "invalid value for socket option resize");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -130,7 +138,7 @@ inline namespace v1
+ 	resize(const _Protocol&, size_t __s)
+ 	{
+ 	  if (__s != sizeof(_M_value))
+-	    __throw_length_error("invalid value for socket option resize");
++	    __throw_length_error(__eqt_excstr_throwing_experimental_bits_net_h0);
+ 	}
+ 
+     protected:
+diff --git a/libstdc++-v3/include/experimental/buffer b/libstdc++-v3/include/experimental/buffer
+index 054150e202a..2d5b5a2f32a 100644
+--- a/libstdc++-v3/include/experimental/buffer
++++ b/libstdc++-v3/include/experimental/buffer
+@@ -44,6 +44,14 @@
+ #include <experimental/string_view>
+ #include <experimental/bits/net.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_experimental_buffer0, "dynamic_vector_buffer::prepare");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -518,7 +526,7 @@ inline namespace v1
+       prepare(size_t __n)
+       {
+ 	if ((_M_size + __n) > _M_max_size)
+-	  __throw_length_error("dynamic_vector_buffer::prepare");
++	  __throw_length_error(__eqt_excstr_throwing_experimental_buffer0);
+ 
+ 	_M_seq.resize(_M_size + __n);
+ 	return buffer(net::buffer(_M_seq) + _M_size, __n);
+diff --git a/libstdc++-v3/include/experimental/executor b/libstdc++-v3/include/experimental/executor
+index f64783b44c9..b03b2b31b3b 100644
+--- a/libstdc++-v3/include/experimental/executor
++++ b/libstdc++-v3/include/experimental/executor
+@@ -49,6 +49,14 @@
+ #include <bits/unique_ptr.h>
+ #include <experimental/bits/net.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_experimental_executor0, "bad executor");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -998,7 +1006,7 @@ inline namespace v1
+ 
+   class bad_executor : public std::exception
+   {
+-    virtual const char* what() const noexcept { return "bad executor"; }
++    virtual const char* what() const noexcept { return __eqt_excstr_exc_what_experimental_executor0; }
+   };
+ 
+   inline void __throw_bad_executor() // TODO make non-inline
+diff --git a/libstdc++-v3/include/experimental/internet b/libstdc++-v3/include/experimental/internet
+index 3f5090cfa70..f67d0f39e10 100644
+--- a/libstdc++-v3/include/experimental/internet
++++ b/libstdc++-v3/include/experimental/internet
+@@ -68,6 +68,20 @@
+ # include <ws2tcpip.h>
+ #endif
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_experimental_internet0, "bad address cast");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_experimental_internet0, "invalid address_v4::bytes_type value");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_experimental_internet1, "invalid address_v4::uint_type value");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_experimental_internet2, "network_v4: invalid prefix length");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_experimental_internet3, "network_v4: invalid mask");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_experimental_internet4, "network_v6: invalid prefix length");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_experimental_internet5, "net::ip::basic_endpoint::resize");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -186,7 +200,7 @@ namespace ip
+ #if UCHAR_MAX > 0xFF
+ 	  for (auto __b : *this)
+ 	    if (__b > 0xFF)
+-	      __throw_out_of_range("invalid address_v4::bytes_type value");
++	      __throw_out_of_range(__eqt_excstr_throwing_experimental_internet0);
+ #endif
+ 	}
+     };
+@@ -211,7 +225,7 @@ namespace ip
+     {
+ #if UINT_LEAST32_MAX > 0xFFFFFFFF
+       if (__val > 0xFFFFFFFF)
+-	__throw_out_of_range("invalid address_v4::uint_type value");
++	__throw_out_of_range(__eqt_excstr_throwing_experimental_internet1);
+ #endif
+     }
+ 
+@@ -474,7 +488,7 @@ namespace ip
+   public:
+     bad_address_cast() { }
+ 
+-    const char* what() const noexcept { return "bad address cast"; }
++    const char* what() const noexcept { return __eqt_excstr_exc_what_experimental_internet0; }
+   };
+ 
+   /// An IPv4 or IPv6 address.
+@@ -1239,7 +1253,7 @@ namespace ip
+     : _M_addr(__addr), _M_prefix_len(__prefix_len)
+     {
+       if (_M_prefix_len < 0 || _M_prefix_len > 32)
+-	__throw_out_of_range("network_v4: invalid prefix length");
++	__throw_out_of_range(__eqt_excstr_throwing_experimental_internet2);
+     }
+ 
+     constexpr
+@@ -1250,9 +1264,9 @@ namespace ip
+ 	{
+ 	  address_v4::uint_type __mask_uint = __mask.to_uint();
+ 	  if (__builtin_ctz(__mask_uint) != (32 - _M_prefix_len))
+-	    __throw_invalid_argument("network_v4: invalid mask");
++	    __throw_invalid_argument(__eqt_excstr_throwing_experimental_internet3);
+ 	  if ((__mask_uint & 0x80000000) == 0)
+-	    __throw_invalid_argument("network_v4: invalid mask");
++	    __throw_invalid_argument(__eqt_excstr_throwing_experimental_internet3);
+ 	}
+     }
+ 
+@@ -1340,7 +1354,7 @@ namespace ip
+     : _M_addr(__addr), _M_prefix_len(__prefix_len)
+     {
+       if (_M_prefix_len < 0 || _M_prefix_len > 128)
+-	__throw_out_of_range("network_v6: invalid prefix length");
++	__throw_out_of_range(__eqt_excstr_throwing_experimental_internet4);
+     }
+ 
+     // members:
+@@ -1666,7 +1680,7 @@ namespace ip
+       resize(size_t __s)
+       {
+ 	if (__s != size())
+-	  __throw_length_error("net::ip::basic_endpoint::resize");
++	  __throw_length_error(__eqt_excstr_throwing_experimental_internet5);
+       }
+ 
+       constexpr size_t capacity() const noexcept { return sizeof(_M_data); }
+diff --git a/libstdc++-v3/include/experimental/optional b/libstdc++-v3/include/experimental/optional
+index c2cb37f2ee7..dd086ce42bb 100644
+--- a/libstdc++-v3/include/experimental/optional
++++ b/libstdc++-v3/include/experimental/optional
+@@ -44,6 +44,14 @@
+ #include <bits/move.h>
+ #include <experimental/bits/lfts_config.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_experimental_optional0, "Attempt to access value of a disengaged optional object");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -674,8 +682,7 @@ inline namespace fundamentals_v1
+       {
+ 	if (this->_M_is_engaged())
+ 	  return this->_M_get();
+-	__throw_bad_optional_access("Attempt to access value of a "
+-				    "disengaged optional object");
++	__throw_bad_optional_access(__eqt_excstr_throwing_experimental_optional0);
+       }
+ 
+       constexpr _Tp&
+@@ -683,8 +690,7 @@ inline namespace fundamentals_v1
+       {
+ 	if (this->_M_is_engaged())
+ 	  return this->_M_get();
+-	__throw_bad_optional_access("Attempt to access value of a "
+-				    "disengaged optional object");
++	__throw_bad_optional_access(__eqt_excstr_throwing_experimental_optional0);
+       }
+ 
+       constexpr _Tp&&
+@@ -692,8 +698,7 @@ inline namespace fundamentals_v1
+       {
+ 	if (this->_M_is_engaged())
+ 	  return std::move(this->_M_get());
+-	__throw_bad_optional_access("Attempt to access value of a "
+-				    "disengaged optional object");
++	__throw_bad_optional_access(__eqt_excstr_throwing_experimental_optional0);
+       }
+ 
+       constexpr const _Tp&&
+@@ -701,8 +706,7 @@ inline namespace fundamentals_v1
+       {
+ 	if (this->_M_is_engaged())
+ 	  return std::move(this->_M_get());
+-	__throw_bad_optional_access("Attempt to access value of a "
+-				    "disengaged optional object");
++	__throw_bad_optional_access(__eqt_excstr_throwing_experimental_optional0);
+       }
+ 
+       template<typename _Up>
+diff --git a/libstdc++-v3/include/experimental/string_view b/libstdc++-v3/include/experimental/string_view
+index 4eb1a84afce..2a0de2dbfcf 100644
+--- a/libstdc++-v3/include/experimental/string_view
++++ b/libstdc++-v3/include/experimental/string_view
+@@ -45,6 +45,16 @@
+ #include <bits/ranges_base.h> // enable_borrowed_range, enable_view
+ #include <experimental/bits/lfts_config.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_experimental_string_view0, __N("basic_string_view::at: __pos (which is %zu) >= this->size() (which is %zu)"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_experimental_string_view1, __N("basic_string_view::copy: __pos (which is %zu) > this->size() (which is %zu)"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_experimental_string_view2, __N("basic_string_view::substr: __pos (which is %zu) > this->size() (which is %zu)"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -191,9 +201,7 @@ inline namespace fundamentals_v1
+       {
+ 	return __pos < this->_M_len
+ 	     ? *(this->_M_str + __pos)
+-	     : (__throw_out_of_range_fmt(__N("basic_string_view::at: __pos "
+-					     "(which is %zu) >= this->size() "
+-					     "(which is %zu)"),
++	     : (__throw_out_of_range_fmt(__eqt_excstr_throwing_experimental_string_view0,
+ 					 __pos, this->size()),
+ 		*this->_M_str);
+       }
+@@ -259,9 +267,7 @@ inline namespace fundamentals_v1
+       {
+ 	__glibcxx_requires_string_len(__str, __n);
+ 	if (__pos > this->_M_len)
+-	  __throw_out_of_range_fmt(__N("basic_string_view::copy: __pos "
+-				       "(which is %zu) > this->size() "
+-				       "(which is %zu)"),
++	  __throw_out_of_range_fmt(__eqt_excstr_throwing_experimental_string_view1,
+ 				   __pos, this->size());
+ 	size_type __rlen{std::min(__n, size_type{this->_M_len  - __pos})};
+ 	for (auto __begin = this->_M_str + __pos,
+@@ -279,9 +285,7 @@ inline namespace fundamentals_v1
+ 	return __pos <= this->_M_len
+ 	     ? basic_string_view{this->_M_str + __pos,
+ 				std::min(__n, size_type{this->_M_len  - __pos})}
+-	     : (__throw_out_of_range_fmt(__N("basic_string_view::substr: __pos "
+-					     "(which is %zu) > this->size() "
+-					     "(which is %zu)"),
++	     : (__throw_out_of_range_fmt(__eqt_excstr_throwing_experimental_string_view2,
+ 				     __pos, this->size()), basic_string_view{});
+       }
+ 
+diff --git a/libstdc++-v3/include/ext/codecvt_specializations.h b/libstdc++-v3/include/ext/codecvt_specializations.h
+index 7306c7d3ac0..eb105be64d1 100644
+--- a/libstdc++-v3/include/ext/codecvt_specializations.h
++++ b/libstdc++-v3/include/ext/codecvt_specializations.h
+@@ -41,6 +41,15 @@
+ #include <locale>
+ #include <iconv.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_codecvt_specializations_h0, __N("encoding_state::_M_init creating iconv input descriptor failed"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_codecvt_specializations_h1, __N("encoding_state::_M_init creating iconv output descriptor failed"));
++
++} // namespace
++
+ namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -164,15 +173,13 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
+ 	{
+ 	  _M_in_desc = iconv_open(_M_int_enc.c_str(), _M_ext_enc.c_str());
+ 	  if (_M_in_desc == __err)
+-	    std::__throw_runtime_error(__N("encoding_state::_M_init "
+-				    "creating iconv input descriptor failed"));
++	    std::__throw_runtime_error(__eqt_excstr_throwing_ext_codecvt_specializations_h0);
+ 	}
+       if (!_M_out_desc && __have_encodings)
+ 	{
+ 	  _M_out_desc = iconv_open(_M_ext_enc.c_str(), _M_int_enc.c_str());
+ 	  if (_M_out_desc == __err)
+-	    std::__throw_runtime_error(__N("encoding_state::_M_init "
+-				  "creating iconv output descriptor failed"));
++	    std::__throw_runtime_error(__eqt_excstr_throwing_ext_codecvt_specializations_h1);
+ 	}
+     }
+ 
+diff --git a/libstdc++-v3/include/ext/concurrence.h b/libstdc++-v3/include/ext/concurrence.h
+index 7629c1b1129..146d63f0209 100644
+--- a/libstdc++-v3/include/ext/concurrence.h
++++ b/libstdc++-v3/include/ext/concurrence.h
+@@ -37,6 +37,17 @@
+ #include <bits/cpp_type_traits.h>
+ #include <ext/type_traits.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_ext_concurrence_h0, "__gnu_cxx::__concurrence_lock_error");
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_ext_concurrence_h1, "__gnu_cxx::__concurrence_unlock_error");
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_ext_concurrence_h2, "__gnu_cxx::__concurrence_broadcast_error");
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_ext_concurrence_h3, "__gnu_cxx::__concurrence_wait_error");
++
++} // namespace
++
+ namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -66,7 +77,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+   public:
+     virtual char const*
+     what() const throw()
+-    { return "__gnu_cxx::__concurrence_lock_error"; }
++    { return __eqt_excstr_exc_what_ext_concurrence_h0; }
+   };
+ 
+   class __concurrence_unlock_error : public std::exception
+@@ -74,7 +85,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+   public:
+     virtual char const*
+     what() const throw()
+-    { return "__gnu_cxx::__concurrence_unlock_error"; }
++    { return __eqt_excstr_exc_what_ext_concurrence_h1; }
+   };
+ 
+   class __concurrence_broadcast_error : public std::exception
+@@ -82,7 +93,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+   public:
+     virtual char const*
+     what() const throw()
+-    { return "__gnu_cxx::__concurrence_broadcast_error"; }
++    { return __eqt_excstr_exc_what_ext_concurrence_h2; }
+   };
+ 
+   class __concurrence_wait_error : public std::exception
+@@ -90,7 +101,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+   public:
+     virtual char const*
+     what() const throw()
+-    { return "__gnu_cxx::__concurrence_wait_error"; }
++    { return __eqt_excstr_exc_what_ext_concurrence_h3; }
+   };
+ 
+   // Substitute for concurrence_error object in the case of -fno-exceptions.
+diff --git a/libstdc++-v3/include/ext/debug_allocator.h b/libstdc++-v3/include/ext/debug_allocator.h
+index 12b8725ee83..fb7785c89b9 100644
+--- a/libstdc++-v3/include/ext/debug_allocator.h
++++ b/libstdc++-v3/include/ext/debug_allocator.h
+@@ -48,6 +48,15 @@
+ #include <bits/functexcept.h>
+ #include <ext/alloc_traits.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_debug_allocator_h0, "debug_allocator::deallocate wrong size");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_debug_allocator_h1, "debug_allocator::deallocate null pointer");
++
++} // namespace
++
+ namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -145,11 +154,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 	  {
+ 	    pointer __real_p = __p - _M_extra;
+ 	    if (*reinterpret_cast<size_type*>(__real_p) != __n)
+-	      __throw_runtime_error("debug_allocator::deallocate wrong size");
++	      __throw_runtime_error(__eqt_excstr_throwing_ext_debug_allocator_h0);
+ 	    _M_allocator.deallocate(__real_p, __n + _M_extra);
+ 	  }
+ 	else
+-	  __throw_runtime_error("debug_allocator::deallocate null pointer");
++	  __throw_runtime_error(__eqt_excstr_throwing_ext_debug_allocator_h1);
+       }
+ 
+       void
+diff --git a/libstdc++-v3/include/ext/pb_ds/exception.hpp b/libstdc++-v3/include/ext/pb_ds/exception.hpp
+index e3ce8ae0612..52ffb55572d 100644
+--- a/libstdc++-v3/include/ext/pb_ds/exception.hpp
++++ b/libstdc++-v3/include/ext/pb_ds/exception.hpp
+@@ -45,6 +45,14 @@
+ #include <stdexcept>
+ #include <cstdlib>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_pb_ds_exception_hpp0, __N("__gnu_pbds::container_error"));
++
++} // namespace
++
+ namespace __gnu_pbds
+ {
+   /**
+@@ -57,7 +65,7 @@ namespace __gnu_pbds
+   struct container_error : public std::logic_error
+   {
+     container_error()
+-    : std::logic_error(__N("__gnu_pbds::container_error")) { }
++    : std::logic_error(__eqt_excstr_throwing_ext_pb_ds_exception_hpp0) { }
+   };
+ 
+   /// An entry cannot be inserted into a container object for logical
+diff --git a/libstdc++-v3/include/ext/random.tcc b/libstdc++-v3/include/ext/random.tcc
+index c6c3fbeec83..32926c4ecaa 100644
+--- a/libstdc++-v3/include/ext/random.tcc
++++ b/libstdc++-v3/include/ext/random.tcc
+@@ -34,6 +34,16 @@
+ 
+ #include <bits/requires_hosted.h> // GNU extensions are currently omitted
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_random_tcc0, __N("normal_mv_distribution::param_type::_M_init_full"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_random_tcc1, __N("normal_mv_distribution::param_type::_M_init_lower"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_random_tcc2, __N("normal_mv_distribution::param_type::_M_init_diagonal"));
++
++} // namespace
++
+ namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -541,8 +551,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 
+ 	    __sum = *__varcovbegin - __sum;
+ 	    if (__builtin_expect(__sum <= _RealType(0), 0))
+-	      std::__throw_runtime_error(__N("normal_mv_distribution::"
+-					     "param_type::_M_init_full"));
++	      std::__throw_runtime_error(__eqt_excstr_throwing_ext_random_tcc0);
+ 	    *__w++ = std::sqrt(__sum);
+ 
+ 	    std::advance(__varcovbegin, _Dimen - __j);
+@@ -582,8 +591,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 
+ 	    __sum = *__varcovbegin++ - __sum;
+ 	    if (__builtin_expect(__sum <= _RealType(0), 0))
+-	      std::__throw_runtime_error(__N("normal_mv_distribution::"
+-					     "param_type::_M_init_lower"));
++	      std::__throw_runtime_error(__eqt_excstr_throwing_ext_random_tcc1);
+ 	    *__w++ = std::sqrt(__sum);
+ 	  }
+       }
+@@ -607,8 +615,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 	    std::fill_n(__w, __step, _RealType(0));
+ 	    __w += __step++;
+ 	    if (__builtin_expect(*__varbegin < _RealType(0), 0))
+-	      std::__throw_runtime_error(__N("normal_mv_distribution::"
+-					     "param_type::_M_init_diagonal"));
++	      std::__throw_runtime_error(__eqt_excstr_throwing_ext_random_tcc2);
+ 	    *__w++ = std::sqrt(*__varbegin++);
+ 	  }
+       }
+diff --git a/libstdc++-v3/include/ext/rc_string_base.h b/libstdc++-v3/include/ext/rc_string_base.h
+index f319cccec62..1c7c6547c87 100644
+--- a/libstdc++-v3/include/ext/rc_string_base.h
++++ b/libstdc++-v3/include/ext/rc_string_base.h
+@@ -36,6 +36,15 @@
+ #include <ext/alloc_traits.h>
+ #include <bits/stl_iterator_base_funcs.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_rc_string_base_h0, __N("__rc_string_base::_Rep::_S_create"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_rc_string_base_h1, __N("__rc_string_base::_S_construct null not valid"));
++
++} // namespace
++
+ namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -382,7 +391,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       // _GLIBCXX_RESOLVE_LIB_DEFECTS
+       // 83.  String::npos vs. string::max_size()
+       if (__capacity > size_type(_S_max_size))
+-	std::__throw_length_error(__N("__rc_string_base::_Rep::_S_create"));
++	std::__throw_length_error(__eqt_excstr_throwing_ext_rc_string_base_h0);
+ 
+       // The standard places no restriction on allocating more memory
+       // than is strictly needed within this layer at the moment or as
+@@ -568,8 +577,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 
+ 	// NB: Not required, but considered best practice.
+ 	if (__is_null_pointer(__beg) && __beg != __end)
+-	  std::__throw_logic_error(__N("__rc_string_base::"
+-				       "_S_construct null not valid"));
++	  std::__throw_logic_error(__eqt_excstr_throwing_ext_rc_string_base_h1);
+ 
+ 	const size_type __dnew = static_cast<size_type>(std::distance(__beg,
+ 								      __end));
+diff --git a/libstdc++-v3/include/ext/ropeimpl.h b/libstdc++-v3/include/ext/ropeimpl.h
+index 8298a22f7f4..afb789a95ce 100644
+--- a/libstdc++-v3/include/ext/ropeimpl.h
++++ b/libstdc++-v3/include/ext/ropeimpl.h
+@@ -48,6 +48,14 @@
+ #include <ext/memory> // For uninitialized_copy_n
+ #include <ext/numeric> // For power
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_ropeimpl_h0, __N("rope::_S_balance"));
++
++} // namespace
++
+ namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -1241,7 +1249,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 	}
+       
+       if (__result->_M_depth > int(__detail::_S_max_rope_depth))
+-	std::__throw_length_error(__N("rope::_S_balance"));
++	std::__throw_length_error(__eqt_excstr_throwing_ext_ropeimpl_h0);
+       return(__result);
+     }
+ 
+diff --git a/libstdc++-v3/include/ext/sso_string_base.h b/libstdc++-v3/include/ext/sso_string_base.h
+index 07cc54b69ea..40f67a9ab0f 100644
+--- a/libstdc++-v3/include/ext/sso_string_base.h
++++ b/libstdc++-v3/include/ext/sso_string_base.h
+@@ -32,6 +32,15 @@
+ 
+ #include <bits/requires_hosted.h> // GNU extensions are currently omitted
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_sso_string_base_h0, __N("__sso_string_base::_M_create"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_sso_string_base_h1, __N("__sso_string_base::_M_construct null not valid"));
++
++} // namespace
++
+ namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -319,7 +328,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       // _GLIBCXX_RESOLVE_LIB_DEFECTS
+       // 83.  String::npos vs. string::max_size()
+       if (__capacity > _M_max_size())
+-	std::__throw_length_error(__N("__sso_string_base::_M_create"));
++	std::__throw_length_error(__eqt_excstr_throwing_ext_sso_string_base_h0);
+ 
+       // The below implements an exponential growth policy, necessary to
+       // meet amortized linear time requirements of the library: see
+@@ -443,8 +452,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       {
+ 	// NB: Not required, but considered best practice.
+ 	if (__is_null_pointer(__beg) && __beg != __end)
+-	  std::__throw_logic_error(__N("__sso_string_base::"
+-				       "_M_construct null not valid"));
++	  std::__throw_logic_error(__eqt_excstr_throwing_ext_sso_string_base_h1);
+ 
+ 	size_type __dnew = static_cast<size_type>(std::distance(__beg, __end));
+ 
+diff --git a/libstdc++-v3/include/ext/vstring.h b/libstdc++-v3/include/ext/vstring.h
+index 25a7d82bf6d..9a4ebd5bc2e 100644
+--- a/libstdc++-v3/include/ext/vstring.h
++++ b/libstdc++-v3/include/ext/vstring.h
+@@ -42,6 +42,20 @@
+ #include <ext/sso_string_base.h>
+ #include <bits/stl_algobase.h> // std::min
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_vstring_h0, __N("%s: __pos (which is %zu) > this->size() (which is %zu)"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_vstring_h1, __N("__versa_string::at: __n (which is %zu) >= this->size() (which is %zu)"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_vstring_h2, "__versa_string::append");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_vstring_h3, "__versa_string::insert");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_vstring_h4, "__versa_string::erase");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_vstring_h5, "__versa_string::replace");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_vstring_h6, "__versa_string::substr");
++
++} // namespace
++
+ namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -89,8 +103,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       _M_check(size_type __pos, const char* __s) const
+       {
+ 	if (__pos > this->size())
+-	  std::__throw_out_of_range_fmt(__N("%s: __pos (which is %zu) > "
+-					    "this->size() (which is %zu)"),
++	  std::__throw_out_of_range_fmt(__eqt_excstr_throwing_ext_vstring_h0,
+ 					__s, __pos, this->size());
+ 	return __pos;
+       }
+@@ -581,9 +594,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       at(size_type __n) const
+       {
+ 	if (__n >= this->size())
+-	  std::__throw_out_of_range_fmt(__N("__versa_string::at: __n "
+-					    "(which is %zu) >= this->size() "
+-					    "(which is %zu)"),
++	  std::__throw_out_of_range_fmt(__eqt_excstr_throwing_ext_vstring_h1,
+ 					__n, this->size());
+ 	return this->_M_data()[__n];
+       }
+@@ -603,9 +614,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       at(size_type __n)
+       {
+ 	if (__n >= this->size())
+-	  std::__throw_out_of_range_fmt(__N("__versa_string::at: __n "
+-					    "(which is %zu) >= this->size() "
+-					    "(which is %zu)"),
++	  std::__throw_out_of_range_fmt(__eqt_excstr_throwing_ext_vstring_h1,
+ 					__n, this->size());
+ 	this->_M_leak();
+ 	return this->_M_data()[__n];
+@@ -725,7 +734,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       append(const _CharT* __s, size_type __n)
+       {
+ 	__glibcxx_requires_string_len(__s, __n);
+-	_M_check_length(size_type(0), __n, "__versa_string::append");
++	_M_check_length(size_type(0), __n, __eqt_excstr_throwing_ext_vstring_h2);
+ 	return _M_append(__s, __n);
+       }
+ 
+@@ -739,7 +748,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       {
+ 	__glibcxx_requires_string(__s);
+ 	const size_type __n = traits_type::length(__s);
+-	_M_check_length(size_type(0), __n, "__versa_string::append");
++	_M_check_length(size_type(0), __n, __eqt_excstr_throwing_ext_vstring_h2);
+ 	return _M_append(__s, __n);
+       }
+ 
+@@ -1128,7 +1137,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       */
+       __versa_string&
+       insert(size_type __pos, size_type __n, _CharT __c)
+-      { return _M_replace_aux(_M_check(__pos, "__versa_string::insert"),
++      { return _M_replace_aux(_M_check(__pos, __eqt_excstr_throwing_ext_vstring_h3),
+ 			      size_type(0), __n, __c); }
+ 
+       /**
+@@ -1176,7 +1185,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       __versa_string&
+       erase(size_type __pos = 0, size_type __n = npos)
+       { 
+-	this->_M_erase(_M_check(__pos, "__versa_string::erase"),
++	this->_M_erase(_M_check(__pos, __eqt_excstr_throwing_ext_vstring_h4),
+ 		       _M_limit(__pos, __n));
+ 	return *this;
+       }
+@@ -1313,7 +1322,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 	      size_type __n2)
+       {
+ 	__glibcxx_requires_string_len(__s, __n2);
+-	return _M_replace(_M_check(__pos, "__versa_string::replace"),
++	return _M_replace(_M_check(__pos, __eqt_excstr_throwing_ext_vstring_h5),
+ 			  _M_limit(__pos, __n1), __s, __n2);
+       }
+ 
+@@ -1358,7 +1367,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       */
+       __versa_string&
+       replace(size_type __pos, size_type __n1, size_type __n2, _CharT __c)
+-      { return _M_replace_aux(_M_check(__pos, "__versa_string::replace"),
++      { return _M_replace_aux(_M_check(__pos, __eqt_excstr_throwing_ext_vstring_h5),
+ 			      _M_limit(__pos, __n1), __n2, __c); }
+ 
+       /**
+@@ -2055,7 +2064,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       __versa_string
+       substr(size_type __pos = 0, size_type __n = npos) const
+       {
+-	return __versa_string(*this, _M_check(__pos, "__versa_string::substr"),
++	return __versa_string(*this, _M_check(__pos, __eqt_excstr_throwing_ext_vstring_h6),
+ 			      __n);
+       }
+ 
+diff --git a/libstdc++-v3/include/ext/vstring.tcc b/libstdc++-v3/include/ext/vstring.tcc
+index 86fcfaa5758..c2f2f05bcce 100644
+--- a/libstdc++-v3/include/ext/vstring.tcc
++++ b/libstdc++-v3/include/ext/vstring.tcc
+@@ -36,6 +36,17 @@
+ 
+ #include <bits/cxxabi_forced.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_vstring_tcc0, "__versa_string::_M_replace_aux");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_vstring_tcc1, "__versa_string::_M_replace");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_vstring_tcc2, "__versa_string::copy");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ext_vstring_tcc3, "__versa_string::compare");
++
++} // namespace
++
+ namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -100,7 +111,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     _M_replace_aux(size_type __pos1, size_type __n1, size_type __n2,
+ 		   _CharT __c)
+     {
+-      _M_check_length(__n1, __n2, "__versa_string::_M_replace_aux");
++      _M_check_length(__n1, __n2, __eqt_excstr_throwing_ext_vstring_tcc0);
+ 
+       const size_type __old_size = this->size();
+       const size_type __new_size = __old_size + __n2 - __n1;
+@@ -130,7 +141,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     _M_replace(size_type __pos, size_type __len1, const _CharT* __s,
+ 	       const size_type __len2)
+     {
+-      _M_check_length(__len1, __len2, "__versa_string::_M_replace");
++      _M_check_length(__len1, __len2, __eqt_excstr_throwing_ext_vstring_tcc1);
+ 
+       const size_type __old_size = this->size();
+       const size_type __new_size = __old_size + __len2 - __len1;
+@@ -256,7 +267,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     __versa_string<_CharT, _Traits, _Alloc, _Base>::
+     copy(_CharT* __s, size_type __n, size_type __pos) const
+     {
+-      _M_check(__pos, "__versa_string::copy");
++      _M_check(__pos, __eqt_excstr_throwing_ext_vstring_tcc2);
+       __n = _M_limit(__pos, __n);
+       __glibcxx_requires_string_len(__s, __n);
+       if (__n)
+@@ -461,7 +472,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     __versa_string<_CharT, _Traits, _Alloc, _Base>::
+     compare(size_type __pos, size_type __n, const __versa_string& __str) const
+     {
+-      _M_check(__pos, "__versa_string::compare");
++      _M_check(__pos, __eqt_excstr_throwing_ext_vstring_tcc3);
+       __n = _M_limit(__pos, __n);
+       const size_type __osize = __str.size();
+       const size_type __len = std::min(__n, __osize);
+@@ -479,7 +490,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     compare(size_type __pos1, size_type __n1, const __versa_string& __str,
+ 	    size_type __pos2, size_type __n2) const
+     {
+-      _M_check(__pos1, "__versa_string::compare");
++      _M_check(__pos1, __eqt_excstr_throwing_ext_vstring_tcc3);
+       __str._M_check(__pos2, "__versa_string::compare");
+       __n1 = _M_limit(__pos1, __n1);
+       __n2 = __str._M_limit(__pos2, __n2);
+@@ -514,7 +525,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     compare(size_type __pos, size_type __n1, const _CharT* __s) const
+     {
+       __glibcxx_requires_string(__s);
+-      _M_check(__pos, "__versa_string::compare");
++      _M_check(__pos, __eqt_excstr_throwing_ext_vstring_tcc3);
+       __n1 = _M_limit(__pos, __n1);
+       const size_type __osize = traits_type::length(__s);
+       const size_type __len = std::min(__n1, __osize);
+@@ -532,7 +543,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 	    size_type __n2) const
+     {
+       __glibcxx_requires_string_len(__s, __n2);
+-      _M_check(__pos, "__versa_string::compare");
++      _M_check(__pos, __eqt_excstr_throwing_ext_vstring_tcc3);
+       __n1 = _M_limit(__pos, __n1);
+       const size_type __len = std::min(__n1, __n2);
+       int __r = traits_type::compare(this->_M_data() + __pos, __s, __len);
+diff --git a/libstdc++-v3/include/std/any b/libstdc++-v3/include/std/any
+index 974805e188f..b18b811a64b 100644
+--- a/libstdc++-v3/include/std/any
++++ b/libstdc++-v3/include/std/any
+@@ -45,6 +45,14 @@
+ #pragma GCC diagnostic push
+ #pragma GCC diagnostic ignored "-Wdeprecated-declarations" // aligned_storage
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_std_any0, "bad any_cast");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -61,7 +69,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+   class bad_any_cast : public bad_cast
+   {
+   public:
+-    virtual const char* what() const noexcept { return "bad any_cast"; }
++    virtual const char* what() const noexcept { return __eqt_excstr_exc_what_std_any0; }
+   };
+ 
+   [[gnu::noreturn]] inline void __throw_bad_any_cast()
+diff --git a/libstdc++-v3/include/std/array b/libstdc++-v3/include/std/array
+index 2e632d0ea86..293fb6c1d8e 100644
+--- a/libstdc++-v3/include/std/array
++++ b/libstdc++-v3/include/std/array
+@@ -51,6 +51,14 @@
+ #define __glibcxx_want_to_array
+ #include <bits/version.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_array0, __N("array::at: __n (which is %zu) >= _Nm (which is %zu)"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -223,8 +231,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       at(size_type __n)
+       {
+ 	if (__n >= _Nm)
+-	  std::__throw_out_of_range_fmt(__N("array::at: __n (which is %zu) "
+-					    ">= _Nm (which is %zu)"),
++	  std::__throw_out_of_range_fmt(__eqt_excstr_throwing_std_array0,
+ 					__n, _Nm);
+ 	return _M_elems[__n];
+       }
+@@ -235,8 +242,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 	// Result of conditional expression must be an lvalue so use
+ 	// boolean ? lvalue : (throw-expr, lvalue)
+ 	return __n < _Nm ? _M_elems[__n]
+-	  : (std::__throw_out_of_range_fmt(__N("array::at: __n (which is %zu) "
+-					       ">= _Nm (which is %zu)"),
++	  : (std::__throw_out_of_range_fmt(__eqt_excstr_throwing_std_array0,
+ 					   __n, _Nm),
+ 	     _M_elems[__n]);
+       }
+diff --git a/libstdc++-v3/include/std/bitset b/libstdc++-v3/include/std/bitset
+index ccd6d19f7a4..a8b27929df6 100644
+--- a/libstdc++-v3/include/std/bitset
++++ b/libstdc++-v3/include/std/bitset
+@@ -68,6 +68,24 @@
+ 
+ #define _GLIBCXX_BITSET_BITS_PER_ULL (__CHAR_BIT__ * __SIZEOF_LONG_LONG__)
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_bitset0, __N("_Base_bitset::_M_do_to_ulong"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_bitset1, __N("_Base_bitset::_M_do_to_ullong"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_bitset2, __N("_Base_bitset::_M_getword"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_bitset3, __N("bitset::bitset: __position (which is %zu) > __s.size() (which is %zu)"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_bitset4, __N("%s: __position (which is %zu) >= _Nb (which is %zu)"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_bitset5, __N("bitset::bitset(const _CharT*, ...)"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_bitset6, __N("bitset::set"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_bitset7, __N("bitset::reset"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_bitset8, __N("bitset::flip"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_bitset9, __N("bitset::test"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_bitset10, __N("bitset::_M_copy_from_ptr"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+@@ -318,7 +336,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+     {
+       for (size_t __i = 1; __i < _Nw; ++__i)
+ 	if (_M_w[__i])
+-	  __throw_overflow_error(__N("_Base_bitset::_M_do_to_ulong"));
++	  __throw_overflow_error(__eqt_excstr_throwing_std_bitset0);
+       return _M_w[0];
+     }
+ 
+@@ -332,7 +350,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+ #else
+       for (size_t __i = 2; __i < _Nw; ++__i)
+ 	if (_M_w[__i])
+-	  __throw_overflow_error(__N("_Base_bitset::_M_do_to_ullong"));
++	  __throw_overflow_error(__eqt_excstr_throwing_std_bitset1);
+ 
+       return _M_w[0] + (static_cast<unsigned long long>(_M_w[1])
+ 			  << _GLIBCXX_BITSET_BITS_PER_WORD);
+@@ -584,7 +602,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       __attribute__((__noreturn__))
+       _WordT&
+       _M_getword(size_t) _GLIBCXX_NOEXCEPT
+-      { __throw_out_of_range(__N("_Base_bitset::_M_getword")); }
++      { __throw_out_of_range(__eqt_excstr_throwing_std_bitset2); }
+ 
+       _GLIBCXX_CONSTEXPR _WordT
+       _M_getword(size_t) const _GLIBCXX_NOEXCEPT
+@@ -816,9 +834,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+ 				size_t __position) const
+       {
+ 	if (__position > __s.size())
+-	  __throw_out_of_range_fmt(__N("bitset::bitset: __position "
+-				       "(which is %zu) > __s.size() "
+-				       "(which is %zu)"),
++	  __throw_out_of_range_fmt(__eqt_excstr_throwing_std_bitset3,
+ 				   __position, __s.size());
+       }
+ #endif // HOSTED
+@@ -827,8 +843,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       void _M_check(size_t __position, const char *__s) const
+       {
+ 	if (__position >= _Nb)
+-	  __throw_out_of_range_fmt(__N("%s: __position (which is %zu) "
+-				       ">= _Nb (which is %zu)"),
++	  __throw_out_of_range_fmt(__eqt_excstr_throwing_std_bitset4,
+ 				   __s, __position, _Nb);
+       }
+ 
+@@ -1025,7 +1040,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+         {
+ #if _GLIBCXX_HOSTED
+ 	  if (!__str)
+-	    __throw_logic_error(__N("bitset::bitset(const _CharT*, ...)"));
++	    __throw_logic_error(__eqt_excstr_throwing_std_bitset5);
+ #endif
+ 	  using _Traits = typename __bitset::__string<_CharT>::traits_type;
+ 
+@@ -1171,7 +1186,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       bitset<_Nb>&
+       set(size_t __position, bool __val = true)
+       {
+-	this->_M_check(__position, __N("bitset::set"));
++	this->_M_check(__position, __eqt_excstr_throwing_std_bitset6);
+ 	return _Unchecked_set(__position, __val);
+       }
+ 
+@@ -1197,7 +1212,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       bitset<_Nb>&
+       reset(size_t __position)
+       {
+-	this->_M_check(__position, __N("bitset::reset"));
++	this->_M_check(__position, __eqt_excstr_throwing_std_bitset7);
+ 	return _Unchecked_reset(__position);
+       }
+ 
+@@ -1222,7 +1237,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       bitset<_Nb>&
+       flip(size_t __position)
+       {
+-	this->_M_check(__position, __N("bitset::flip"));
++	this->_M_check(__position, __eqt_excstr_throwing_std_bitset8);
+ 	return _Unchecked_flip(__position);
+       }
+ 
+@@ -1396,7 +1411,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+       bool
+       test(size_t __position) const
+       {
+-	this->_M_check(__position, __N("bitset::test"));
++	this->_M_check(__position, __eqt_excstr_throwing_std_bitset9);
+ 	return _Unchecked_test(__position);
+       }
+ 
+@@ -1518,7 +1533,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+ 	    else if (_Traits::eq(__c, __one))
+ 	      _Unchecked_set(__i - 1);
+ 	    else
+-	      __throw_invalid_argument(__N("bitset::_M_copy_from_ptr"));
++	      __throw_invalid_argument(__eqt_excstr_throwing_std_bitset10);
+ 	  }
+       }
+ 
+diff --git a/libstdc++-v3/include/std/expected b/libstdc++-v3/include/std/expected
+index b0a5423f193..b9b1aaafb96 100644
+--- a/libstdc++-v3/include/std/expected
++++ b/libstdc++-v3/include/std/expected
+@@ -42,6 +42,14 @@
+ #include <bits/stl_construct.h>	// construct_at
+ #include <bits/utility.h>	// in_place_t
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_std_expected0, "bad access to std::expected without expected value");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -90,7 +98,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       [[nodiscard]]
+       const char*
+       what() const noexcept override
+-      { return "bad access to std::expected without expected value"; }
++      { return __eqt_excstr_exc_what_std_expected0; }
+     };
+ 
+   template<typename _Er>
+diff --git a/libstdc++-v3/include/std/format b/libstdc++-v3/include/std/format
+index ada62c26bca..360ae7eb464 100644
+--- a/libstdc++-v3/include/std/format
++++ b/libstdc++-v3/include/std/format
+@@ -63,6 +63,25 @@
+ # include <cctype>
+ #endif
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_format0, "format error: unmatched '{' in format string");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_format1, "format error: unmatched '}' in format string");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_format2, "format error: conflicting indexing style in format string");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_format3, "format error: invalid arg-id in format string");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_format4, "format error: failed to parse format-spec");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_format5, "format error: invalid width or precision in format-spec");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_format6, "format error: width must be non-zero in format string");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_format7, "format error: missing precision after '.' in format string");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_format8, "format error: format-spec contains invalid formatting options for 'bool'");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_format9, "format error: format-spec contains invalid formatting options for 'charT'");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_format10, "format error: integer not representable as character");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_format11, "format error: argument used for width or precision must be a non-negative integer");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -201,27 +220,27 @@ namespace __format
+   [[noreturn]]
+   inline void
+   __unmatched_left_brace_in_format_string()
+-  { __throw_format_error("format error: unmatched '{' in format string"); }
++  { __throw_format_error(__eqt_excstr_throwing_std_format0); }
+ 
+   [[noreturn]]
+   inline void
+   __unmatched_right_brace_in_format_string()
+-  { __throw_format_error("format error: unmatched '}' in format string"); }
++  { __throw_format_error(__eqt_excstr_throwing_std_format1); }
+ 
+   [[noreturn]]
+   inline void
+   __conflicting_indexing_in_format_string()
+-  { __throw_format_error("format error: conflicting indexing style in format string"); }
++  { __throw_format_error(__eqt_excstr_throwing_std_format2); }
+ 
+   [[noreturn]]
+   inline void
+   __invalid_arg_id_in_format_string()
+-  { __throw_format_error("format error: invalid arg-id in format string"); }
++  { __throw_format_error(__eqt_excstr_throwing_std_format3); }
+ 
+   [[noreturn]]
+   inline void
+   __failed_to_parse_format_spec()
+-  { __throw_format_error("format error: failed to parse format-spec"); }
++  { __throw_format_error(__eqt_excstr_throwing_std_format4); }
+ } // namespace __format
+   /// @endcond
+ 
+@@ -527,8 +546,7 @@ namespace __format
+ 	  {
+ 	    auto [__v, __ptr] = __format::__parse_integer(__first, __last);
+ 	    if (!__ptr)
+-	      __throw_format_error("format error: invalid width or precision "
+-				   "in format-spec");
++	      __throw_format_error(__eqt_excstr_throwing_std_format5);
+ 	    __first = __ptr;
+ 	    __val = __v;
+ 	  }
+@@ -561,8 +579,7 @@ namespace __format
+       {
+ 	bool __arg_id = false;
+ 	if (*__first == '0')
+-	  __throw_format_error("format error: width must be non-zero in "
+-			       "format string");
++	  __throw_format_error(__eqt_excstr_throwing_std_format6);
+ 	auto __next = _S_parse_width_or_precision(__first, __last, _M_width,
+ 						  __arg_id, __pc);
+ 	if (__next != __first)
+@@ -584,8 +601,7 @@ namespace __format
+ 	  __next = _S_parse_width_or_precision(__first, __last, _M_prec,
+ 					       __arg_id, __pc);
+ 	if (__next == __first)
+-	  __throw_format_error("format error: missing precision after '.' in "
+-			       "format string");
++	  __throw_format_error(__eqt_excstr_throwing_std_format7);
+ 	_M_prec_kind = __arg_id ? _WP_from_arg : _WP_value;
+ 	return __next;
+       }
+@@ -1063,9 +1079,7 @@ namespace __format
+ 	      auto __end = _M_do_parse(__pc, _AsBool);
+ 	      if (_M_spec._M_type == _Pres_s)
+ 		if (_M_spec._M_sign || _M_spec._M_alt || _M_spec._M_zero_fill)
+-		  __throw_format_error("format error: format-spec contains "
+-				       "invalid formatting options for "
+-				       "'bool'");
++		  __throw_format_error(__eqt_excstr_throwing_std_format8);
+ 	      return __end;
+ 	    }
+ 	  else if constexpr (__char<_Tp>)
+@@ -1074,9 +1088,7 @@ namespace __format
+ 	      if (_M_spec._M_type == _Pres_c || _M_spec._M_type == _Pres_esc)
+ 		if (_M_spec._M_sign || _M_spec._M_alt || _M_spec._M_zero_fill
+ 		      /* XXX should be invalid? || _M_spec._M_localized */)
+-		  __throw_format_error("format error: format-spec contains "
+-				       "invalid formatting options for "
+-				       "'charT'");
++		  __throw_format_error(__eqt_excstr_throwing_std_format9);
+ 	      return __end;
+ 	    }
+ 	  else
+@@ -1223,8 +1235,7 @@ namespace __format
+ 	    }
+ 	  else if (__i <= make_unsigned_t<_CharT>(_Traits::__max))
+ 	    return static_cast<_CharT>(__i);
+-	  __throw_format_error("format error: integer not representable as "
+-			       "character");
++	  __throw_format_error(__eqt_excstr_throwing_std_format10);
+ 	}
+ 
+       template<typename _Out>
+@@ -3602,8 +3613,7 @@ namespace __format
+ 	      if (__arg >= 0)
+ 		return __arg;
+ 	  }
+-	__throw_format_error("format error: argument used for width or "
+-			     "precision must be a non-negative integer");
++	__throw_format_error(__eqt_excstr_throwing_std_format11);
+       }
+   };
+ 
+diff --git a/libstdc++-v3/include/std/optional b/libstdc++-v3/include/std/optional
+index 1c37c8c5ac8..eceeb5a970f 100644
+--- a/libstdc++-v3/include/std/optional
++++ b/libstdc++-v3/include/std/optional
+@@ -55,6 +55,14 @@
+ # include <concepts>
+ #endif
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_std_optional0, "bad optional access");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -98,7 +106,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     virtual ~bad_optional_access() = default;
+ 
+     const char* what() const noexcept override
+-    { return "bad optional access"; }
++    { return __eqt_excstr_exc_what_std_optional0; }
+   };
+ 
+   // XXX Does not belong here.
+diff --git a/libstdc++-v3/include/std/span b/libstdc++-v3/include/std/span
+index 726f0f339f1..e276f271cb4 100644
+--- a/libstdc++-v3/include/std/span
++++ b/libstdc++-v3/include/std/span
+@@ -44,6 +44,14 @@
+ #include <cstddef>
+ #include <bits/stl_iterator.h>
+ #include <bits/ranges_base.h>
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_span0, __N("span::at(%zu) out-of-range for span of size %zu"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -293,8 +301,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       at(size_type __idx) const
+       {
+ 	if (__idx >= size())
+-	  __throw_out_of_range_fmt(__N("span::at(%zu) out-of-range for span "
+-				       "of size %zu"), __idx, this->size());
++	  __throw_out_of_range_fmt(__eqt_excstr_throwing_std_span0, __idx, this->size());
+ 	return *(this->_M_ptr + __idx);
+       }
+ #endif
+diff --git a/libstdc++-v3/include/std/stacktrace b/libstdc++-v3/include/std/stacktrace
+index fc1b3af9e4f..5dbd6eda8ae 100644
+--- a/libstdc++-v3/include/std/stacktrace
++++ b/libstdc++-v3/include/std/stacktrace
+@@ -48,6 +48,16 @@
+ #include <bits/stl_tempbuf.h> // __get_temporary_buffer
+ #include <ext/numeric_traits.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_stacktrace0, "basic_stacktrace::at: bad frame number");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_stacktrace1, "format error: invalid format-spec for std::stacktrace_entry");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_stacktrace2, "format error: invalid format-spec for std::basic_stacktrace");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -447,7 +457,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       at(size_type __n) const
+       {
+ 	if (__n >= size())
+-	  __throw_out_of_range("basic_stacktrace::at: bad frame number");
++	  __throw_out_of_range(__eqt_excstr_throwing_std_stacktrace0);
+ 	return begin()[__n];
+       }
+ 
+@@ -742,8 +752,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 	if (__finished())
+ 	  return __first;
+ 
+-	__throw_format_error("format error: invalid format-spec for "
+-			     "std::stacktrace_entry");
++	__throw_format_error(__eqt_excstr_throwing_std_stacktrace1);
+       }
+ 
+       template<typename _Out>
+@@ -772,8 +781,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 	const auto __first = __pc.begin();
+ 	if (__first == __pc.end() || *__first == '}')
+ 	  return __first;
+-	__throw_format_error("format error: invalid format-spec for "
+-			     "std::basic_stacktrace");
++	__throw_format_error(__eqt_excstr_throwing_std_stacktrace2);
+       }
+ 
+       template<typename _Out>
+diff --git a/libstdc++-v3/include/std/string_view b/libstdc++-v3/include/std/string_view
+index 4bce4ba21b4..fd9cd6cfbc7 100644
+--- a/libstdc++-v3/include/std/string_view
++++ b/libstdc++-v3/include/std/string_view
+@@ -61,6 +61,15 @@
+ # include <bits/ostream_insert.h>
+ #endif
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_string_view0, __N("%s: __pos (which is %zu) > __size (which is %zu)"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_string_view1, __N("basic_string_view::at: __pos (which is %zu) >= this->size() (which is %zu)"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -70,8 +79,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+   __sv_check(size_t __size, size_t __pos, const char* __s)
+   {
+     if (__pos > __size)
+-      __throw_out_of_range_fmt(__N("%s: __pos (which is %zu) > __size "
+-				   "(which is %zu)"), __s, __pos, __size);
++      __throw_out_of_range_fmt(__eqt_excstr_throwing_std_string_view0, __s, __pos, __size);
+     return __pos;
+   }
+ 
+@@ -262,9 +270,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+       at(size_type __pos) const
+       {
+ 	if (__pos >= _M_len)
+-	  __throw_out_of_range_fmt(__N("basic_string_view::at: __pos "
+-				       "(which is %zu) >= this->size() "
+-				       "(which is %zu)"), __pos, this->size());
++	  __throw_out_of_range_fmt(__eqt_excstr_throwing_std_string_view1, __pos, this->size());
+ 	return *(this->_M_str + __pos);
+       }
+ 
+diff --git a/libstdc++-v3/include/std/thread b/libstdc++-v3/include/std/thread
+index e994d683bff..24d291fe90b 100644
+--- a/libstdc++-v3/include/std/thread
++++ b/libstdc++-v3/include/std/thread
+@@ -53,6 +53,14 @@
+ # include <format>
+ #endif
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_thread0, "format error: invalid format-spec for std::thread::id");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -330,8 +338,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 	if (__finished())
+ 	  return __first;
+ 
+-	__throw_format_error("format error: invalid format-spec for "
+-			     "std::thread::id");
++	__throw_format_error(__eqt_excstr_throwing_std_thread0);
+       }
+ 
+       template<typename _Out>
+diff --git a/libstdc++-v3/include/std/variant b/libstdc++-v3/include/std/variant
+index 834bb548f13..5c13a3c6a6c 100644
+--- a/libstdc++-v3/include/std/variant
++++ b/libstdc++-v3/include/std/variant
+@@ -56,6 +56,18 @@
+ #endif
+ 
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_variant_std_variant0, "bad variant access");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_variant0, "std::get: variant is valueless");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_variant1, "std::get: wrong index for variant");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_variant2, "std::visit: variant is valueless");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_std_variant3, "std::visit<R>: variant is valueless");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -1338,7 +1350,7 @@ namespace __variant
+     bad_variant_access(const char* __reason) noexcept : _M_reason(__reason) { }
+ 
+     // Must point to a string with static storage duration:
+-    const char* _M_reason = "bad variant access";
++    const char* _M_reason = __eqt_excstr_variant_std_variant0;
+ 
+     friend void __throw_bad_variant_access(const char* __what);
+   };
+@@ -1352,9 +1364,9 @@ namespace __variant
+   __throw_bad_variant_access(bool __valueless)
+   {
+     if (__valueless) [[__unlikely__]]
+-      __throw_bad_variant_access("std::get: variant is valueless");
++      __throw_bad_variant_access(__eqt_excstr_throwing_std_variant0);
+     else
+-      __throw_bad_variant_access("std::get: wrong index for variant");
++      __throw_bad_variant_access(__eqt_excstr_throwing_std_variant1);
+   }
+ 
+   template<typename... _Types>
+@@ -1857,7 +1869,7 @@ namespace __variant
+       namespace __variant = std::__detail::__variant;
+ 
+       if ((__variant::__as(__variants).valueless_by_exception() || ...))
+-	__throw_bad_variant_access("std::visit: variant is valueless");
++	__throw_bad_variant_access(__eqt_excstr_throwing_std_variant2);
+ 
+       using _Result_type
+ 	= __detail::__variant::__visit_result_t<_Visitor, _Variants...>;
+@@ -1897,7 +1909,7 @@ namespace __variant
+       namespace __variant = std::__detail::__variant;
+ 
+       if ((__variant::__as(__variants).valueless_by_exception() || ...))
+-	__throw_bad_variant_access("std::visit<R>: variant is valueless");
++	__throw_bad_variant_access(__eqt_excstr_throwing_std_variant3);
+ 
+       return std::__do_visit<_Res>(std::forward<_Visitor>(__visitor),
+ 	  __variant::__as(std::forward<_Variants>(__variants))...);
+diff --git a/libstdc++-v3/include/tr1/array b/libstdc++-v3/include/tr1/array
+index b16542c2ee9..fa903b2dbf9 100644
+--- a/libstdc++-v3/include/tr1/array
++++ b/libstdc++-v3/include/tr1/array
+@@ -35,6 +35,14 @@
+ 
+ #include <bits/stl_algobase.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_array0, __N("array::at"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -137,7 +145,7 @@ namespace tr1
+       at(size_type __n)
+       {
+ 	if (__n >= _Nm)
+-	  std::__throw_out_of_range(__N("array::at"));
++	  std::__throw_out_of_range(__eqt_excstr_throwing_tr1_array0);
+ 	return _M_instance[__n];
+       }
+ 
+@@ -145,7 +153,7 @@ namespace tr1
+       at(size_type __n) const
+       {
+ 	if (__n >= _Nm)
+-	  std::__throw_out_of_range(__N("array::at"));
++	  std::__throw_out_of_range(__eqt_excstr_throwing_tr1_array0);
+ 	return _M_instance[__n];
+       }
+ 
+diff --git a/libstdc++-v3/include/tr1/bessel_function.tcc b/libstdc++-v3/include/tr1/bessel_function.tcc
+index ef40154eed6..487d36595f4 100644
+--- a/libstdc++-v3/include/tr1/bessel_function.tcc
++++ b/libstdc++-v3/include/tr1/bessel_function.tcc
+@@ -52,6 +52,20 @@
+ 
+ #include <tr1/special_function_util.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_bessel_function_tcc0, __N("Argument x too large in __bessel_jn; try asymptotic expansion."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_bessel_function_tcc1, __N("Bessel y series failed to converge in __bessel_jn."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_bessel_function_tcc2, __N("Lentz's method failed in __bessel_jn."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_bessel_function_tcc3, __N("Bad argument in __cyl_bessel_j."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_bessel_function_tcc4, __N("Bad argument in __cyl_neumann_n."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_bessel_function_tcc5, __N("Bad argument in __sph_bessel."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_bessel_function_tcc6, __N("Bad argument in __sph_neumann."));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -204,8 +218,7 @@ namespace tr1
+             break;
+         }
+       if (__i > __max_iter)
+-        std::__throw_runtime_error(__N("Argument x too large in __bessel_jn; "
+-                                       "try asymptotic expansion."));
++        std::__throw_runtime_error(__eqt_excstr_throwing_tr1_bessel_function_tcc0);
+       _Tp __Jnul = __isign * __fp_min;
+       _Tp __Jpnul = __h * __Jnul;
+       _Tp __Jnul1 = __Jnul;
+@@ -261,8 +274,7 @@ namespace tr1
+                 break;
+             }
+           if ( __i > __max_iter )
+-            std::__throw_runtime_error(__N("Bessel y series failed to converge "
+-                                           "in __bessel_jn."));
++            std::__throw_runtime_error(__eqt_excstr_throwing_tr1_bessel_function_tcc1);
+           __Nmu = -__sum;
+           __Nnu1 = -__sum1 * __xi2;
+           __Npmu = __mu * __xi * __Nmu - __Nnu1;
+@@ -312,8 +324,7 @@ namespace tr1
+                 break;
+           }
+           if (__i > __max_iter)
+-            std::__throw_runtime_error(__N("Lentz's method failed "
+-                                           "in __bessel_jn."));
++            std::__throw_runtime_error(__eqt_excstr_throwing_tr1_bessel_function_tcc2);
+           const _Tp __gam = (__p - __f) / __q;
+           __Jmu = std::sqrt(__w / ((__p - __f) * __gam + __q));
+ #if _GLIBCXX_USE_C99_MATH_TR1
+@@ -492,8 +503,7 @@ namespace tr1
+     __cyl_bessel_j(_Tp __nu, _Tp __x)
+     {
+       if (__nu < _Tp(0) || __x < _Tp(0))
+-        std::__throw_domain_error(__N("Bad argument "
+-                                      "in __cyl_bessel_j."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_bessel_function_tcc3);
+       else if (__isnan(__nu) || __isnan(__x))
+         return std::numeric_limits<_Tp>::quiet_NaN();
+       else if (__x * __x < _Tp(10) * (__nu + _Tp(1)))
+@@ -534,8 +544,7 @@ namespace tr1
+     __cyl_neumann_n(_Tp __nu, _Tp __x)
+     {
+       if (__nu < _Tp(0) || __x < _Tp(0))
+-        std::__throw_domain_error(__N("Bad argument "
+-                                      "in __cyl_neumann_n."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_bessel_function_tcc4);
+       else if (__isnan(__nu) || __isnan(__x))
+         return std::numeric_limits<_Tp>::quiet_NaN();
+       else if (__x > _Tp(1000))
+@@ -606,8 +615,7 @@ namespace tr1
+     __sph_bessel(unsigned int __n, _Tp __x)
+     {
+       if (__x < _Tp(0))
+-        std::__throw_domain_error(__N("Bad argument "
+-                                      "in __sph_bessel."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_bessel_function_tcc5);
+       else if (__isnan(__x))
+         return std::numeric_limits<_Tp>::quiet_NaN();
+       else if (__x == _Tp(0))
+@@ -644,8 +652,7 @@ namespace tr1
+     __sph_neumann(unsigned int __n, _Tp __x)
+     {
+       if (__x < _Tp(0))
+-        std::__throw_domain_error(__N("Bad argument "
+-                                      "in __sph_neumann."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_bessel_function_tcc6);
+       else if (__isnan(__x))
+         return std::numeric_limits<_Tp>::quiet_NaN();
+       else if (__x == _Tp(0))
+diff --git a/libstdc++-v3/include/tr1/ell_integral.tcc b/libstdc++-v3/include/tr1/ell_integral.tcc
+index 60f300bb3f9..b51a0d0449e 100644
+--- a/libstdc++-v3/include/tr1/ell_integral.tcc
++++ b/libstdc++-v3/include/tr1/ell_integral.tcc
+@@ -42,6 +42,25 @@
+ #ifndef _GLIBCXX_TR1_ELL_INTEGRAL_TCC
+ #define _GLIBCXX_TR1_ELL_INTEGRAL_TCC 1
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_ell_integral_tcc0, __N("Argument less than zero in __ellint_rf."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_ell_integral_tcc1, __N("Argument too small in __ellint_rf"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_ell_integral_tcc2, __N("Bad argument in __ellint_1."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_ell_integral_tcc3, __N("Argument less than zero in __ellint_rd."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_ell_integral_tcc4, __N("Argument too small in __ellint_rd."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_ell_integral_tcc5, __N("Bad argument in __comp_ellint_2."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_ell_integral_tcc6, __N("Bad argument in __ellint_2."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_ell_integral_tcc7, __N("Argument less than zero in __ellint_rc."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_ell_integral_tcc8, __N("Argument less than zero in __ellint_rj."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_ell_integral_tcc9, __N("Argument too small in __ellint_rj"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_ell_integral_tcc10, __N("Bad argument in __comp_ellint_3."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_ell_integral_tcc11, __N("Bad argument in __ellint_3."));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -81,11 +100,10 @@ namespace tr1
+       const _Tp __lolim = _Tp(5) * __min;
+ 
+       if (__x < _Tp(0) || __y < _Tp(0) || __z < _Tp(0))
+-        std::__throw_domain_error(__N("Argument less than zero "
+-                                      "in __ellint_rf."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_ell_integral_tcc0);
+       else if (__x + __y < __lolim || __x + __z < __lolim
+             || __y + __z < __lolim)
+-        std::__throw_domain_error(__N("Argument too small in __ellint_rf"));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_ell_integral_tcc1);
+       else
+         {
+           const _Tp __c0 = _Tp(1) / _Tp(4);
+@@ -224,7 +242,7 @@ namespace tr1
+       if (__isnan(__k) || __isnan(__phi))
+         return std::numeric_limits<_Tp>::quiet_NaN();
+       else if (std::abs(__k) > _Tp(1))
+-        std::__throw_domain_error(__N("Bad argument in __ellint_1."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_ell_integral_tcc2);
+       else
+         {
+           //  Reduce phi to -pi/2 < phi < +pi/2.
+@@ -321,11 +339,9 @@ namespace tr1
+       const _Tp __lolim = _Tp(2) / std::pow(__max, _Tp(2) / _Tp(3));
+ 
+       if (__x < _Tp(0) || __y < _Tp(0))
+-        std::__throw_domain_error(__N("Argument less than zero "
+-                                      "in __ellint_rd."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_ell_integral_tcc3);
+       else if (__x + __y < __lolim || __z < __lolim)
+-        std::__throw_domain_error(__N("Argument too small "
+-                                      "in __ellint_rd."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_ell_integral_tcc4);
+       else
+         {
+           const _Tp __c0 = _Tp(1) / _Tp(4);
+@@ -406,7 +422,7 @@ namespace tr1
+       else if (std::abs(__k) == 1)
+         return _Tp(1);
+       else if (std::abs(__k) > _Tp(1))
+-        std::__throw_domain_error(__N("Bad argument in __comp_ellint_2."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_ell_integral_tcc5);
+       else
+         {
+           const _Tp __kk = __k * __k;
+@@ -438,7 +454,7 @@ namespace tr1
+       if (__isnan(__k) || __isnan(__phi))
+         return std::numeric_limits<_Tp>::quiet_NaN();
+       else if (std::abs(__k) > _Tp(1))
+-        std::__throw_domain_error(__N("Bad argument in __ellint_2."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_ell_integral_tcc6);
+       else
+         {
+           //  Reduce phi to -pi/2 < phi < +pi/2.
+@@ -497,8 +513,7 @@ namespace tr1
+       const _Tp __lolim = _Tp(5) * __min;
+ 
+       if (__x < _Tp(0) || __y < _Tp(0) || __x + __y < __lolim)
+-        std::__throw_domain_error(__N("Argument less than zero "
+-                                      "in __ellint_rc."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_ell_integral_tcc7);
+       else
+         {
+           const _Tp __c0 = _Tp(1) / _Tp(4);
+@@ -566,12 +581,10 @@ namespace tr1
+       const _Tp __lolim = std::pow(_Tp(5) * __min, _Tp(1)/_Tp(3));
+ 
+       if (__x < _Tp(0) || __y < _Tp(0) || __z < _Tp(0))
+-        std::__throw_domain_error(__N("Argument less than zero "
+-                                      "in __ellint_rj."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_ell_integral_tcc8);
+       else if (__x + __y < __lolim || __x + __z < __lolim
+             || __y + __z < __lolim || __p < __lolim)
+-        std::__throw_domain_error(__N("Argument too small "
+-                                      "in __ellint_rj"));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_ell_integral_tcc9);
+       else
+         {
+           const _Tp __c0 = _Tp(1) / _Tp(4);
+@@ -668,7 +681,7 @@ namespace tr1
+       else if (__nu == _Tp(1))
+         return std::numeric_limits<_Tp>::infinity();
+       else if (std::abs(__k) > _Tp(1))
+-        std::__throw_domain_error(__N("Bad argument in __comp_ellint_3."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_ell_integral_tcc10);
+       else
+         {
+           const _Tp __kk = __k * __k;
+@@ -706,7 +719,7 @@ namespace tr1
+       if (__isnan(__k) || __isnan(__nu) || __isnan(__phi))
+         return std::numeric_limits<_Tp>::quiet_NaN();
+       else if (std::abs(__k) > _Tp(1))
+-        std::__throw_domain_error(__N("Bad argument in __ellint_3."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_ell_integral_tcc11);
+       else
+         {
+           //  Reduce phi to -pi/2 < phi < +pi/2.
+diff --git a/libstdc++-v3/include/tr1/exp_integral.tcc b/libstdc++-v3/include/tr1/exp_integral.tcc
+index 8763a97253b..832167bf649 100644
+--- a/libstdc++-v3/include/tr1/exp_integral.tcc
++++ b/libstdc++-v3/include/tr1/exp_integral.tcc
+@@ -47,6 +47,15 @@
+ 
+ #include <tr1/special_function_util.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_exp_integral_tcc0, __N("Series summation failed in __expint_En_series."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_exp_integral_tcc1, __N("Continued fraction failed in __expint_En_cont_frac."));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -180,8 +189,7 @@ namespace tr1
+           if (std::abs(__del) < __eps * std::abs(__ans))
+             return __ans;
+         }
+-      std::__throw_runtime_error(__N("Series summation failed "
+-                                     "in __expint_En_series."));
++      std::__throw_runtime_error(__eqt_excstr_throwing_tr1_exp_integral_tcc0);
+     }
+ 
+ 
+@@ -224,8 +232,7 @@ namespace tr1
+               return __ans;
+             }
+         }
+-      std::__throw_runtime_error(__N("Continued fraction failed "
+-                                     "in __expint_En_cont_frac."));
++      std::__throw_runtime_error(__eqt_excstr_throwing_tr1_exp_integral_tcc1);
+     }
+ 
+ 
+diff --git a/libstdc++-v3/include/tr1/gamma.tcc b/libstdc++-v3/include/tr1/gamma.tcc
+index 1f64c8c46c5..e85ca3c8efd 100644
+--- a/libstdc++-v3/include/tr1/gamma.tcc
++++ b/libstdc++-v3/include/tr1/gamma.tcc
+@@ -48,6 +48,15 @@
+ 
+ #include <tr1/special_function_util.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_gamma_tcc0, __N("Argument is nonpositive integer in __log_gamma"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_gamma_tcc1, __N("Argument out of range in __psi"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -233,8 +242,7 @@ namespace tr1
+           const _Tp __sin_fact
+                  = std::abs(std::sin(__numeric_constants<_Tp>::__pi() * __x));
+           if (__sin_fact == _Tp(0))
+-            std::__throw_domain_error(__N("Argument is nonpositive integer "
+-                                          "in __log_gamma"));
++            std::__throw_domain_error(__eqt_excstr_throwing_tr1_gamma_tcc0);
+           return __numeric_constants<_Tp>::__lnpi()
+                      - std::log(__sin_fact)
+                      - __log_gamma_lanczos(_Tp(1) - __x);
+@@ -448,8 +456,7 @@ namespace tr1
+     __psi(unsigned int __n, _Tp __x)
+     {
+       if (__x <= _Tp(0))
+-        std::__throw_domain_error(__N("Argument out of range "
+-                                      "in __psi"));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_gamma_tcc1);
+       else if (__n == 0)
+         return __psi(__x);
+       else
+diff --git a/libstdc++-v3/include/tr1/hypergeometric.tcc b/libstdc++-v3/include/tr1/hypergeometric.tcc
+index afd112481a3..95c099ba901 100644
+--- a/libstdc++-v3/include/tr1/hypergeometric.tcc
++++ b/libstdc++-v3/include/tr1/hypergeometric.tcc
+@@ -41,6 +41,22 @@
+ #ifndef _GLIBCXX_TR1_HYPERGEOMETRIC_TCC
+ #define _GLIBCXX_TR1_HYPERGEOMETRIC_TCC 1
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_hypergeometric_tcc0, __N("Series failed to converge in __conf_hyperg_series."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_hypergeometric_tcc1, __N("Iteration failed to converge in __conf_hyperg_luke."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_hypergeometric_tcc2, __N("Series failed to converge in __hyperg_series."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_hypergeometric_tcc3, __N("Iteration failed to converge in __hyperg_luke."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_hypergeometric_tcc4, __N("Overflow of gamma functions in __hyperg_luke."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_hypergeometric_tcc5, __N("Sum F2 failed to converge in __hyperg_reflect"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_hypergeometric_tcc6, __N("Overflow of gamma functions in __hyperg_reflect"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_hypergeometric_tcc7, __N("Underflow of gamma functions in __hyperg_reflect"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_hypergeometric_tcc8, __N("Argument outside unit circle in __hyperg."));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -101,8 +117,7 @@ namespace tr1
+           __Fac += __term;
+         }
+       if (__i == __max_iter)
+-        std::__throw_runtime_error(__N("Series failed to converge "
+-                                       "in __conf_hyperg_series."));
++        std::__throw_runtime_error(__eqt_excstr_throwing_tr1_hypergeometric_tcc0);
+ 
+       return __Fac;
+     }
+@@ -206,8 +221,7 @@ namespace tr1
+         }
+ 
+       if (__n >= __nmax)
+-        std::__throw_runtime_error(__N("Iteration failed to converge "
+-                                       "in __conf_hyperg_luke."));
++        std::__throw_runtime_error(__eqt_excstr_throwing_tr1_hypergeometric_tcc1);
+ 
+       return __F;
+     }
+@@ -289,8 +303,7 @@ namespace tr1
+           __Fabc += __term;
+         }
+       if (__i == __max_iter)
+-        std::__throw_runtime_error(__N("Series failed to converge "
+-                                       "in __hyperg_series."));
++        std::__throw_runtime_error(__eqt_excstr_throwing_tr1_hypergeometric_tcc2);
+ 
+       return __Fabc;
+     }
+@@ -398,8 +411,7 @@ namespace tr1
+         }
+ 
+       if (__n >= __nmax)
+-        std::__throw_runtime_error(__N("Iteration failed to converge "
+-                                       "in __hyperg_luke."));
++        std::__throw_runtime_error(__eqt_excstr_throwing_tr1_hypergeometric_tcc3);
+ 
+       return __F;
+     }
+@@ -509,8 +521,7 @@ namespace tr1
+                     }
+ 
+                   if (__ln_pre1 > __log_max)
+-                    std::__throw_runtime_error(__N("Overflow of gamma functions"
+-                                                   " in __hyperg_luke."));
++                    std::__throw_runtime_error(__eqt_excstr_throwing_tr1_hypergeometric_tcc4);
+                   else
+                     __F1 = std::exp(__ln_pre1) * __sum1;
+                 }
+@@ -572,8 +583,7 @@ namespace tr1
+                     break;
+                 }
+               if (__j == __maxiter)
+-                std::__throw_runtime_error(__N("Sum F2 failed to converge "
+-                                               "in __hyperg_reflect"));
++                std::__throw_runtime_error(__eqt_excstr_throwing_tr1_hypergeometric_tcc5);
+ 
+               if (__sum2 == _Tp(0))
+                 __F2 = _Tp(0);
+@@ -653,8 +663,7 @@ namespace tr1
+                 }
+               else
+                 {
+-                  std::__throw_runtime_error(__N("Overflow of gamma functions "
+-                                                 "in __hyperg_reflect"));
++                  std::__throw_runtime_error(__eqt_excstr_throwing_tr1_hypergeometric_tcc6);
+                 }
+             }
+           else if (__ok1 && !__ok2)
+@@ -668,8 +677,7 @@ namespace tr1
+                 }
+               else
+                 {
+-                  std::__throw_runtime_error(__N("Overflow of gamma functions "
+-                                                 "in __hyperg_reflect"));
++                  std::__throw_runtime_error(__eqt_excstr_throwing_tr1_hypergeometric_tcc6);
+                 }
+             }
+           else if (!__ok1 && __ok2)
+@@ -684,16 +692,14 @@ namespace tr1
+                 }
+               else
+                 {
+-                  std::__throw_runtime_error(__N("Overflow of gamma functions "
+-                                                 "in __hyperg_reflect"));
++                  std::__throw_runtime_error(__eqt_excstr_throwing_tr1_hypergeometric_tcc6);
+                 }
+             }
+           else
+             {
+               __pre1 = _Tp(0);
+               __pre2 = _Tp(0);
+-              std::__throw_runtime_error(__N("Underflow of gamma functions "
+-                                             "in __hyperg_reflect"));
++              std::__throw_runtime_error(__eqt_excstr_throwing_tr1_hypergeometric_tcc7);
+             }
+ 
+           const _Tp __F1 = __hyperg_series(__a, __b, _Tp(1) - __d,
+@@ -740,8 +746,7 @@ namespace tr1
+ #endif
+       const _Tp __toler = _Tp(1000) * std::numeric_limits<_Tp>::epsilon();
+       if (std::abs(__x) >= _Tp(1))
+-        std::__throw_domain_error(__N("Argument outside unit circle "
+-                                      "in __hyperg."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_hypergeometric_tcc8);
+       else if (__isnan(__a) || __isnan(__b)
+             || __isnan(__c) || __isnan(__x))
+         return std::numeric_limits<_Tp>::quiet_NaN();
+diff --git a/libstdc++-v3/include/tr1/modified_bessel_func.tcc b/libstdc++-v3/include/tr1/modified_bessel_func.tcc
+index 6e5e68c609e..7037b089a51 100644
+--- a/libstdc++-v3/include/tr1/modified_bessel_func.tcc
++++ b/libstdc++-v3/include/tr1/modified_bessel_func.tcc
+@@ -48,6 +48,18 @@
+ 
+ #include <tr1/special_function_util.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_modified_bessel_func_tcc0, __N("Argument x too large in __bessel_ik; try asymptotic expansion."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_modified_bessel_func_tcc1, __N("Bessel k series failed to converge in __bessel_ik."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_modified_bessel_func_tcc2, __N("Steed's method failed in __bessel_ik."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_modified_bessel_func_tcc3, __N("Bad argument in __cyl_bessel_i."));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_modified_bessel_func_tcc4, __N("Bad argument in __cyl_bessel_k."));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -136,9 +148,7 @@ namespace tr1
+             break;
+         }
+       if (__i > __max_iter)
+-        std::__throw_runtime_error(__N("Argument x too large "
+-                                       "in __bessel_ik; "
+-                                       "try asymptotic expansion."));
++        std::__throw_runtime_error(__eqt_excstr_throwing_tr1_modified_bessel_func_tcc0);
+       _Tp __Inul = __fp_min;
+       _Tp __Ipnul = __h * __Inul;
+       _Tp __Inul1 = __Inul;
+@@ -189,8 +199,7 @@ namespace tr1
+                 break;
+             }
+           if (__i > __max_iter)
+-            std::__throw_runtime_error(__N("Bessel k series failed to converge "
+-                                           "in __bessel_ik."));
++            std::__throw_runtime_error(__eqt_excstr_throwing_tr1_modified_bessel_func_tcc1);
+           __Kmu = __sum;
+           __Knu1 = __sum1 * __xi2;
+         }
+@@ -225,8 +234,7 @@ namespace tr1
+                 break;
+             }
+           if (__i > __max_iter)
+-            std::__throw_runtime_error(__N("Steed's method failed "
+-                                           "in __bessel_ik."));
++            std::__throw_runtime_error(__eqt_excstr_throwing_tr1_modified_bessel_func_tcc2);
+           __h = __a1 * __h;
+           __Kmu = std::sqrt(__numeric_constants<_Tp>::__pi() / (_Tp(2) * __x))
+                 * std::exp(-__x) / __s;
+@@ -269,8 +277,7 @@ namespace tr1
+     __cyl_bessel_i(_Tp __nu, _Tp __x)
+     {
+       if (__nu < _Tp(0) || __x < _Tp(0))
+-        std::__throw_domain_error(__N("Bad argument "
+-                                      "in __cyl_bessel_i."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_modified_bessel_func_tcc3);
+       else if (__isnan(__nu) || __isnan(__x))
+         return std::numeric_limits<_Tp>::quiet_NaN();
+       else if (__x * __x < _Tp(10) * (__nu + _Tp(1)))
+@@ -305,8 +312,7 @@ namespace tr1
+     __cyl_bessel_k(_Tp __nu, _Tp __x)
+     {
+       if (__nu < _Tp(0) || __x < _Tp(0))
+-        std::__throw_domain_error(__N("Bad argument "
+-                                      "in __cyl_bessel_k."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_modified_bessel_func_tcc4);
+       else if (__isnan(__nu) || __isnan(__x))
+         return std::numeric_limits<_Tp>::quiet_NaN();
+       else
+diff --git a/libstdc++-v3/include/tr1/poly_laguerre.tcc b/libstdc++-v3/include/tr1/poly_laguerre.tcc
+index ae0b99ab622..ae2e8ea3c0b 100644
+--- a/libstdc++-v3/include/tr1/poly_laguerre.tcc
++++ b/libstdc++-v3/include/tr1/poly_laguerre.tcc
+@@ -41,6 +41,14 @@
+ #ifndef _GLIBCXX_TR1_POLY_LAGUERRE_TCC
+ #define _GLIBCXX_TR1_POLY_LAGUERRE_TCC 1
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_poly_laguerre_tcc0, __N("Negative argument in __poly_laguerre."));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -246,8 +254,7 @@ namespace tr1
+     __poly_laguerre(unsigned int __n, _Tpa __alpha1, _Tp __x)
+     {
+       if (__x < _Tp(0))
+-        std::__throw_domain_error(__N("Negative argument "
+-                                      "in __poly_laguerre."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_poly_laguerre_tcc0);
+       //  Return NaN on NaN input.
+       else if (__isnan(__x))
+         return std::numeric_limits<_Tp>::quiet_NaN();
+diff --git a/libstdc++-v3/include/tr1/random.h b/libstdc++-v3/include/tr1/random.h
+index 449b846aac8..719a3fc6faa 100644
+--- a/libstdc++-v3/include/tr1/random.h
++++ b/libstdc++-v3/include/tr1/random.h
+@@ -33,6 +33,15 @@
+ 
+ #pragma GCC system_header
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_random_h0, __N("random_device::random_device(const std::string&)"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_random_h1, __N("random_device::_M_strtoul(const std::string&)"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -1436,8 +1445,7 @@ namespace tr1
+     {
+       if ((__token != "/dev/urandom" && __token != "/dev/random")
+ 	  || !(_M_file = std::fopen(__token.c_str(), "rb")))
+-	std::__throw_runtime_error(__N("random_device::"
+-				       "random_device(const std::string&)"));
++	std::__throw_runtime_error(__eqt_excstr_throwing_tr1_random_h0);
+     }
+ 
+     ~random_device()
+@@ -1460,8 +1468,7 @@ namespace tr1
+ 	  char* __endptr;
+ 	  __ret = std::strtoul(__nptr, &__endptr, 0);
+ 	  if (*__nptr == '\0' || *__endptr != '\0')
+-	    std::__throw_runtime_error(__N("random_device::_M_strtoul"
+-					   "(const std::string&)"));
++	    std::__throw_runtime_error(__eqt_excstr_throwing_tr1_random_h1);
+ 	}
+       return __ret;
+     }
+diff --git a/libstdc++-v3/include/tr1/riemann_zeta.tcc b/libstdc++-v3/include/tr1/riemann_zeta.tcc
+index 82498c212b1..12fea529c24 100644
+--- a/libstdc++-v3/include/tr1/riemann_zeta.tcc
++++ b/libstdc++-v3/include/tr1/riemann_zeta.tcc
+@@ -44,6 +44,14 @@
+ 
+ #include <tr1/special_function_util.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr1_riemann_zeta_tcc0, __N("Bad argument in zeta sum."));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -81,7 +89,7 @@ namespace tr1
+     {
+       //  A user shouldn't get to this.
+       if (__s < _Tp(1))
+-        std::__throw_domain_error(__N("Bad argument in zeta sum."));
++        std::__throw_domain_error(__eqt_excstr_throwing_tr1_riemann_zeta_tcc0);
+ 
+       const unsigned int max_iter = 10000;
+       _Tp __zeta = _Tp(0);
+diff --git a/libstdc++-v3/include/tr1/shared_ptr.h b/libstdc++-v3/include/tr1/shared_ptr.h
+index 926dea8f429..206218d1193 100644
+--- a/libstdc++-v3/include/tr1/shared_ptr.h
++++ b/libstdc++-v3/include/tr1/shared_ptr.h
+@@ -49,6 +49,14 @@
+ #ifndef _TR1_SHARED_PTR_H
+ #define _TR1_SHARED_PTR_H 1
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_tr1_shared_ptr_h0, "tr1::bad_weak_ptr");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -64,7 +72,7 @@ namespace tr1
+   public:
+     virtual char const*
+     what() const throw()
+-    { return "tr1::bad_weak_ptr"; }
++    { return __eqt_excstr_exc_what_tr1_shared_ptr_h0; }
+   };
+ 
+   // Substitute for bad_weak_ptr object in the case of -fno-exceptions.
+diff --git a/libstdc++-v3/include/tr2/dynamic_bitset b/libstdc++-v3/include/tr2/dynamic_bitset
+index 274c4f6a138..14560e2f91a 100644
+--- a/libstdc++-v3/include/tr2/dynamic_bitset
++++ b/libstdc++-v3/include/tr2/dynamic_bitset
+@@ -39,6 +39,18 @@
+ #include <bits/stl_algo.h>	// For fill
+ #include <bits/cxxabi_forced.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr2_dynamic_bitset0, __N("dynamic_bitset::bitset initial position not valid"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr2_dynamic_bitset1, __N("dynamic_bitset::set"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr2_dynamic_bitset2, __N("dynamic_bitset::reset"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr2_dynamic_bitset3, __N("dynamic_bitset::flip"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr2_dynamic_bitset4, __N("dynamic_bitset::test"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -616,8 +628,7 @@ namespace tr2
+ 	: _Base(__alloc)
+ 	{
+ 	  if (__pos > __str.size())
+-	    __throw_out_of_range(__N("dynamic_bitset::bitset initial position "
+-				     "not valid"));
++	    __throw_out_of_range(__eqt_excstr_throwing_tr2_dynamic_bitset0);
+ 
+ 	  // Watch for npos.
+ 	  this->_M_Nb = (__n > __str.size() ? __str.size() - __pos : __n);
+@@ -844,7 +855,7 @@ namespace tr2
+       set(size_type __pos, bool __val = true)
+       {
+ 	if (__pos >= _M_Nb)
+-	  __throw_out_of_range(__N("dynamic_bitset::set"));
++	  __throw_out_of_range(__eqt_excstr_throwing_tr2_dynamic_bitset1);
+ 	return this->_M_unchecked_set(__pos, __val);
+       }
+ 
+@@ -869,7 +880,7 @@ namespace tr2
+       reset(size_type __pos)
+       {
+ 	if (__pos >= _M_Nb)
+-	  __throw_out_of_range(__N("dynamic_bitset::reset"));
++	  __throw_out_of_range(__eqt_excstr_throwing_tr2_dynamic_bitset2);
+ 	return this->_M_unchecked_reset(__pos);
+       }
+ 
+@@ -893,7 +904,7 @@ namespace tr2
+       flip(size_type __pos)
+       {
+ 	if (__pos >= _M_Nb)
+-	  __throw_out_of_range(__N("dynamic_bitset::flip"));
++	  __throw_out_of_range(__eqt_excstr_throwing_tr2_dynamic_bitset3);
+ 	return this->_M_unchecked_flip(__pos);
+       }
+ 
+@@ -1021,7 +1032,7 @@ namespace tr2
+       test(size_type __pos) const
+       {
+ 	if (__pos >= _M_Nb)
+-	  __throw_out_of_range(__N("dynamic_bitset::test"));
++	  __throw_out_of_range(__eqt_excstr_throwing_tr2_dynamic_bitset4);
+ 	return _M_unchecked_test(__pos);
+       }
+ 
+diff --git a/libstdc++-v3/include/tr2/dynamic_bitset.tcc b/libstdc++-v3/include/tr2/dynamic_bitset.tcc
+index 5aac7d88ee3..153d299c850 100644
+--- a/libstdc++-v3/include/tr2/dynamic_bitset.tcc
++++ b/libstdc++-v3/include/tr2/dynamic_bitset.tcc
+@@ -32,6 +32,16 @@
+ 
+ #pragma GCC system_header
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr2_dynamic_bitset_tcc0, __N("__dynamic_bitset_base::_M_do_to_ulong"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr2_dynamic_bitset_tcc1, __N("__dynamic_bitset_base::_M_do_to_ullong"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_tr2_dynamic_bitset_tcc2, __N("dynamic_bitset::_M_copy_from_ptr"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -98,7 +108,7 @@ namespace tr2
+       size_t __n = sizeof(unsigned long) / sizeof(block_type);
+       for (size_t __i = __n; __i < this->_M_w.size(); ++__i)
+ 	if (this->_M_w[__i])
+-	  __throw_overflow_error(__N("__dynamic_bitset_base::_M_do_to_ulong"));
++	  __throw_overflow_error(__eqt_excstr_throwing_tr2_dynamic_bitset_tcc0);
+       unsigned long __res = 0UL;
+       for (size_t __i = 0; __i < __n && __i < this->_M_w.size(); ++__i)
+ 	__res += this->_M_w[__i] << (__i * _S_bits_per_block);
+@@ -112,7 +122,7 @@ namespace tr2
+       size_t __n = sizeof(unsigned long long) / sizeof(block_type);
+       for (size_t __i = __n; __i < this->_M_w.size(); ++__i)
+ 	if (this->_M_w[__i])
+-	  __throw_overflow_error(__N("__dynamic_bitset_base::_M_do_to_ullong"));
++	  __throw_overflow_error(__eqt_excstr_throwing_tr2_dynamic_bitset_tcc1);
+       unsigned long long __res = 0ULL;
+       for (size_t __i = 0; __i < __n && __i < this->_M_w.size(); ++__i)
+ 	__res += this->_M_w[__i] << (__i * _S_bits_per_block);
+@@ -188,7 +198,7 @@ namespace tr2
+ 	    else if (_Traits::eq(__c, __one))
+ 	      _M_unchecked_set(__i - 1);
+ 	    else
+-	      __throw_invalid_argument(__N("dynamic_bitset::_M_copy_from_ptr"));
++	      __throw_invalid_argument(__eqt_excstr_throwing_tr2_dynamic_bitset_tcc2);
+ 	  }
+       }
+ 
+diff --git a/libstdc++-v3/libsupc++/bad_alloc.cc b/libstdc++-v3/libsupc++/bad_alloc.cc
+index 9203adb0f4d..3a54747cb44 100644
+--- a/libstdc++-v3/libsupc++/bad_alloc.cc
++++ b/libstdc++-v3/libsupc++/bad_alloc.cc
+@@ -25,10 +25,18 @@
+ 
+ #include "new"
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_bad_alloc_cc0, "std::bad_alloc");
++
++} // namespace
++
+ std::bad_alloc::~bad_alloc() _GLIBCXX_USE_NOEXCEPT { }
+ 
+ const char* 
+ std::bad_alloc::what() const _GLIBCXX_USE_NOEXCEPT
+ {
+-  return "std::bad_alloc";
++  return __eqt_excstr_exc_what_bad_alloc_cc0;
+ }
+diff --git a/libstdc++-v3/libsupc++/bad_array_length.cc b/libstdc++-v3/libsupc++/bad_array_length.cc
+index e3805642027..a911b42f011 100644
+--- a/libstdc++-v3/libsupc++/bad_array_length.cc
++++ b/libstdc++-v3/libsupc++/bad_array_length.cc
+@@ -23,6 +23,14 @@
+ 
+ #include <new>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_bad_array_length_cc0, "std::bad_array_length");
++
++} // namespace
++
+ namespace std 
+ {
+ // From N3639.  This was voted in and then back out of C++14, and is now
+@@ -44,7 +52,7 @@ bad_array_length::~bad_array_length() _GLIBCXX_USE_NOEXCEPT { }
+ 
+ const char*
+ bad_array_length::what() const _GLIBCXX_USE_NOEXCEPT
+-{ return "std::bad_array_length"; }
++{ return __eqt_excstr_exc_what_bad_array_length_cc0; }
+ 
+ } // namespace std
+ 
+diff --git a/libstdc++-v3/libsupc++/bad_array_new.cc b/libstdc++-v3/libsupc++/bad_array_new.cc
+index da39452d9da..99509aa4aa3 100644
+--- a/libstdc++-v3/libsupc++/bad_array_new.cc
++++ b/libstdc++-v3/libsupc++/bad_array_new.cc
+@@ -23,6 +23,14 @@
+ 
+ #include <new>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_bad_array_new_cc0, "std::bad_array_new_length");
++
++} // namespace
++
+ namespace std 
+ {
+ 
+@@ -30,6 +38,6 @@ bad_array_new_length::~bad_array_new_length() _GLIBCXX_USE_NOEXCEPT { }
+ 
+ const char*
+ bad_array_new_length::what() const _GLIBCXX_USE_NOEXCEPT
+-{ return "std::bad_array_new_length"; }
++{ return __eqt_excstr_exc_what_bad_array_new_cc0; }
+ 
+ } // namespace std
+diff --git a/libstdc++-v3/libsupc++/bad_cast.cc b/libstdc++-v3/libsupc++/bad_cast.cc
+index 081292e9a71..89ae1312659 100644
+--- a/libstdc++-v3/libsupc++/bad_cast.cc
++++ b/libstdc++-v3/libsupc++/bad_cast.cc
+@@ -23,6 +23,14 @@
+ 
+ #include <typeinfo>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_bad_cast_cc0, "std::bad_cast");
++
++} // namespace
++
+ namespace std {
+ 
+ bad_cast::~bad_cast() _GLIBCXX_USE_NOEXCEPT { }
+@@ -30,7 +38,7 @@ bad_cast::~bad_cast() _GLIBCXX_USE_NOEXCEPT { }
+ const char* 
+ bad_cast::what() const _GLIBCXX_USE_NOEXCEPT
+ {
+-  return "std::bad_cast";
++  return __eqt_excstr_exc_what_bad_cast_cc0;
+ }
+ 
+ } // namespace std
+diff --git a/libstdc++-v3/libsupc++/bad_typeid.cc b/libstdc++-v3/libsupc++/bad_typeid.cc
+index f332814eea0..92605140314 100644
+--- a/libstdc++-v3/libsupc++/bad_typeid.cc
++++ b/libstdc++-v3/libsupc++/bad_typeid.cc
+@@ -23,6 +23,14 @@
+ 
+ #include <typeinfo>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_bad_typeid_cc0, "std::bad_typeid");
++
++} // namespace
++
+ namespace std {
+ 
+ bad_typeid::~bad_typeid() _GLIBCXX_USE_NOEXCEPT { }
+@@ -30,7 +38,7 @@ bad_typeid::~bad_typeid() _GLIBCXX_USE_NOEXCEPT { }
+ const char* 
+ bad_typeid::what() const _GLIBCXX_USE_NOEXCEPT
+ {
+-  return "std::bad_typeid";
++  return __eqt_excstr_exc_what_bad_typeid_cc0;
+ }
+ 
+ } // namespace std
+diff --git a/libstdc++-v3/libsupc++/eh_exception.cc b/libstdc++-v3/libsupc++/eh_exception.cc
+index 4c31981ab4a..578d7b6edd8 100644
+--- a/libstdc++-v3/libsupc++/eh_exception.cc
++++ b/libstdc++-v3/libsupc++/eh_exception.cc
+@@ -26,6 +26,15 @@
+ #include "exception"
+ #include <cxxabi.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_eh_exception_cc0, "std::exception");
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_eh_exception_cc1, "std::bad_exception");
++
++} // namespace
++
+ std::exception::~exception() _GLIBCXX_TXN_SAFE_DYN _GLIBCXX_USE_NOEXCEPT { }
+ 
+ std::bad_exception::~bad_exception() _GLIBCXX_TXN_SAFE_DYN
+@@ -42,13 +51,13 @@ std::exception::what() const _GLIBCXX_TXN_SAFE_DYN _GLIBCXX_USE_NOEXCEPT
+   // NB: Another elegant option would be returning typeid(*this).name()
+   // and not overriding what() in bad_exception, bad_alloc, etc.  In
+   // that case, however, mangled names would be returned, PR 14493.
+-  return "std::exception";
++  return __eqt_excstr_exc_what_eh_exception_cc0;
+ }
+ 
+ const char* 
+ std::bad_exception::what() const _GLIBCXX_TXN_SAFE_DYN _GLIBCXX_USE_NOEXCEPT
+ {
+-  return "std::bad_exception";
++  return __eqt_excstr_exc_what_eh_exception_cc1;
+ }
+ 
+ // Transactional clones for the destructors and what().
+diff --git a/libstdc++-v3/src/c++11/compatibility-c++0x.cc b/libstdc++-v3/src/c++11/compatibility-c++0x.cc
+index 1f96729d958..26e5b4be722 100644
+--- a/libstdc++-v3/src/c++11/compatibility-c++0x.cc
++++ b/libstdc++-v3/src/c++11/compatibility-c++0x.cc
+@@ -46,6 +46,14 @@
+ 
+ #ifdef _GLIBCXX_SHARED
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_compatibility_c_0x_cc0, "std::lock_error");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -62,7 +70,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 
+   const char*
+   lock_error::what() const throw()
+-  { return "std::lock_error"; }
++  { return __eqt_excstr_exc_what_compatibility_c_0x_cc0; }
+ #endif
+ 
+   // We need these due to the symbols exported since GLIBCXX_3.4.10.
+diff --git a/libstdc++-v3/src/c++11/cxx11-shim_facets.cc b/libstdc++-v3/src/c++11/cxx11-shim_facets.cc
+index 023c10233c5..464a3b89ade 100644
+--- a/libstdc++-v3/src/c++11/cxx11-shim_facets.cc
++++ b/libstdc++-v3/src/c++11/cxx11-shim_facets.cc
+@@ -43,6 +43,15 @@
+ # error This file should not be compiled for this configuration.
+ #endif
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_cxx11_shim_facets_cc0, "uninitialized __any_string");
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_cxx11_shim_facets_cc1, "cannot create shim for unknown locale::facet");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -151,7 +160,7 @@ namespace __facet_shims
+       operator basic_string<C>() const
+       {
+ 	if (!_M_dtor)
+-	  __throw_logic_error("uninitialized __any_string");
++	  __throw_logic_error(__eqt_excstr_throwing_cxx11_shim_facets_cc0);
+ 	return basic_string<C>(static_cast<const C*>(_M_str), _M_str._M_len);
+       }
+   };
+@@ -838,7 +847,7 @@ namespace __facet_shims
+     if (which == &std::messages<wchar_t>::id)
+       return new messages_shim<wchar_t>{this};
+ #endif
+-    __throw_logic_error("cannot create shim for unknown locale::facet");
++    __throw_logic_error(__eqt_excstr_throwing_cxx11_shim_facets_cc1);
+   }
+ 
+ _GLIBCXX_END_NAMESPACE_VERSION
+diff --git a/libstdc++-v3/src/c++11/functional.cc b/libstdc++-v3/src/c++11/functional.cc
+index 6180ad21f32..693f5d298cd 100644
+--- a/libstdc++-v3/src/c++11/functional.cc
++++ b/libstdc++-v3/src/c++11/functional.cc
+@@ -25,6 +25,14 @@
+ #include <functional>
+ #include <bits/functexcept.h>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_functional_cc0, "bad_function_call");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -37,7 +45,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 
+   const char*
+   bad_function_call::what() const noexcept
+-  { return "bad_function_call"; }
++  { return __eqt_excstr_exc_what_functional_cc0; }
+ 
+ _GLIBCXX_END_NAMESPACE_VERSION
+ } // namespace
+diff --git a/libstdc++-v3/src/c++11/ios.cc b/libstdc++-v3/src/c++11/ios.cc
+index 9c2452a54d3..842b231133a 100644
+--- a/libstdc++-v3/src/c++11/ios.cc
++++ b/libstdc++-v3/src/c++11/ios.cc
+@@ -29,6 +29,15 @@
+ #include <ios>
+ #include <limits>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ios_cc0, __N("ios_base::_M_grow_words is not valid"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_ios_cc1, __N("ios_base::_M_grow_words allocation failed"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -118,7 +127,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+     _Words* __words = _M_local_word;
+     const char* __error = nullptr;
+     if ((unsigned)__ix >= (unsigned)numeric_limits<int>::max())
+-      __error = __N("ios_base::_M_grow_words is not valid");
++      __error = __eqt_excstr_throwing_ios_cc0;
+     else if (__ix > _S_local_word_size - 1)
+       {
+ 	__newsize = __ix + 1;
+@@ -130,7 +139,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 	__catch(const std::bad_alloc&)
+ 	  { __words = nullptr; }
+ 	if (!__words)
+-	  __error = __N("ios_base::_M_grow_words allocation failed");
++	  __error = __eqt_excstr_throwing_ios_cc1;
+ 	else
+ 	  {
+ 	    for (int __i = 0; __i < _M_word_size; __i++)
+diff --git a/libstdc++-v3/src/c++11/localename.cc b/libstdc++-v3/src/c++11/localename.cc
+index cde94ec6e19..a85f73133bd 100644
+--- a/libstdc++-v3/src/c++11/localename.cc
++++ b/libstdc++-v3/src/c++11/localename.cc
+@@ -30,6 +30,14 @@
+ #include <cstdlib>
+ #include <locale>
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_localename_cc0, __N("locale::locale null not valid"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -149,7 +157,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 	  }
+       }
+     else
+-      __throw_runtime_error(__N("locale::locale null not valid"));
++      __throw_runtime_error(__eqt_excstr_throwing_localename_cc0);
+   }
+ 
+   locale::locale(const locale& __base, const char* __s, category __cat)
+diff --git a/libstdc++-v3/src/c++11/random.cc b/libstdc++-v3/src/c++11/random.cc
+index b4bf0a785fb..510921c5724 100644
+--- a/libstdc++-v3/src/c++11/random.cc
++++ b/libstdc++-v3/src/c++11/random.cc
+@@ -89,6 +89,22 @@
+ # include <chrono>
+ #endif
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_random_cc0, __N("random_device: rdrand failed"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_random_cc1, __N("random_device: rdseed failed"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_random_cc2, __N("random_device: darn failed"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_random_cc3, __N("random_device: rand_s failed"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_random_cc4, __N("random_device: getentropy failed"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_random_cc5, __N("random_device::random_device(const std::string&): unsupported token"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_random_cc6, __N("random_device::random_device(const std::string&): device not available"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_random_cc7, __N("random_device::_M_init_pretr1(const std::string&)"));
++__EQT_EXCSTR_DECL(__eqt_excstr_throwing_random_cc8, __N("random_device could not be read"));
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+   namespace
+@@ -108,7 +124,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
+ 
+       while (__builtin_ia32_rdrand32_step(&val) == 0) [[__unlikely__]]
+ 	if (--retries == 0)
+-	  std::__throw_runtime_error(__N("random_device: rdrand failed"));
++	  std::__throw_runtime_error(__eqt_excstr_throwing_random_cc0);
+ 
+       return val;
+     }
+@@ -128,7 +144,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
+ 	    {
+ 	      if (auto f = reinterpret_cast<unsigned int(*)(void*)>(fallback))
+ 		return f(nullptr);
+-	      std::__throw_runtime_error(__N("random_device: rdseed failed"));
++	      std::__throw_runtime_error(__eqt_excstr_throwing_random_cc1);
+ 	    }
+ 	  __builtin_ia32_pause();
+ 	}
+@@ -157,7 +173,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
+       while (val == failed) [[__unlikely__]]
+ 	{
+ 	  if (--retries == 0)
+-	    std::__throw_runtime_error(__N("random_device: darn failed"));
++	    std::__throw_runtime_error(__eqt_excstr_throwing_random_cc2);
+ 	  val = __builtin_darn();
+ 	}
+       return (uint32_t)val;
+@@ -170,7 +186,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
+     {
+       unsigned int val;
+       if (::rand_s(&val) != 0)
+-	std::__throw_runtime_error(__N("random_device: rand_s failed"));
++	std::__throw_runtime_error(__eqt_excstr_throwing_random_cc3);
+       return val;
+     }
+ #endif
+@@ -181,7 +197,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
+     {
+       unsigned int val;
+       if (::getentropy(&val, sizeof(val)) != 0)
+-	std::__throw_runtime_error(__N("random_device: getentropy failed"));
++	std::__throw_runtime_error(__eqt_excstr_throwing_random_cc4);
+       return val;
+     }
+ #endif
+@@ -369,9 +385,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
+       which = prng;
+ #endif
+     else
+-      std::__throw_syserr(EINVAL, __N("random_device::random_device"
+-				      "(const std::string&):"
+-				      " unsupported token"));
++      std::__throw_syserr(EINVAL, __eqt_excstr_throwing_random_cc5);
+ 
+ #if defined ENOSYS
+     [[maybe_unused]] const int unsupported = ENOSYS;
+@@ -507,8 +521,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
+     }
+ #endif
+ 
+-    auto msg = __N("random_device::random_device(const std::string&):"
+-		   " device not available");
++    auto msg = __eqt_excstr_throwing_random_cc6;
+     if (err)
+       std::__throw_syserr(err, msg);
+     else
+@@ -529,8 +542,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
+ 	char* endptr;
+ 	seed = std::strtoul(nptr, &endptr, 0);
+ 	if (*nptr == '\0' || *endptr != '\0')
+-	  std::__throw_syserr(EINVAL, __N("random_device::_M_init_pretr1"
+-					  "(const std::string&)"));
++	  std::__throw_syserr(EINVAL, __eqt_excstr_throwing_random_cc7);
+       }
+     _M_mt.seed(seed);
+ #else
+@@ -603,13 +615,13 @@ namespace std _GLIBCXX_VISIBILITY(default)
+ 	    p = static_cast<char*>(p) + e;
+ 	  }
+ 	else if (e != -1 || errno != EINTR)
+-	  __throw_syserr(errno, __N("random_device could not be read"));
++	  __throw_syserr(errno, __eqt_excstr_throwing_random_cc8);
+       }
+     while (n > 0);
+ #else // USE_POSIX_FILE_IO
+     const size_t e = std::fread(p, n, 1, static_cast<FILE*>(_M_file));
+     if (e != 1)
+-      __throw_runtime_error(__N("random_device could not be read"));
++      __throw_runtime_error(__eqt_excstr_throwing_random_cc8);
+ #endif // USE_POSIX_FILE_IO
+ 
+     return ret;
+diff --git a/libstdc++-v3/src/c++11/shared_ptr.cc b/libstdc++-v3/src/c++11/shared_ptr.cc
+index 4b02cb25c57..eb68d2e36da 100644
+--- a/libstdc++-v3/src/c++11/shared_ptr.cc
++++ b/libstdc++-v3/src/c++11/shared_ptr.cc
+@@ -49,6 +49,14 @@ namespace __gnu_internal _GLIBCXX_VISIBILITY(hidden)
+   }
+ }
+ 
++#include <__eqt/excstring.hpp>
++
++namespace {
++
++__EQT_EXCSTR_DECL(__eqt_excstr_exc_what_shared_ptr_cc0, "bad_weak_ptr");
++
++} // namespace
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -57,7 +65,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+ 
+   char const*
+   bad_weak_ptr::what() const noexcept
+-  { return "bad_weak_ptr"; }
++  { return __eqt_excstr_exc_what_shared_ptr_cc0; }
+ 
+ #ifdef __GTHREADS
+   namespace
+-- 
+2.55.0
+

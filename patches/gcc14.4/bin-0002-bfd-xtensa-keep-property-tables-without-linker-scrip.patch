@@ -1,0 +1,238 @@
+From 9df79e6dd5c5f96631e11969d71a9a25da410461 Mon Sep 17 00:00:00 2001
+From: Alexey Lapshin <alexey.lapshin@espressif.com>
+Date: Wed, 12 Aug 2026 00:18:06 +0700
+Subject: [PATCH 2/3] bfd: xtensa: keep property tables without linker script
+ KEEP
+
+Property sections are unreferenced, so linker scripts kept them alive
+with KEEP(). That does not work: gas puts .xt.prop/.xt.lit for a COMDAT
+function into that function's group, and _bfd_elf_gc_mark marks every
+member of a group when one member is marked. KEEP() on the property
+section therefore resurrected the code, literals, rodata and exception
+tables of unused C++ template instantiations and inline functions.
+Dropping KEEP() instead loses the property tables of live code, because
+non-COMDAT objects share one .xt.prop that nothing references.
+
+Mark property tables from the gc_mark_extra_sections hook, once the
+sections they describe have been marked, using the existing
+xtensa_get_property_section lookup. Set gc_mark directly rather than
+calling _bfd_elf_gc_mark, so a property section that belongs to a COMDAT
+group does not drag in the rest of the group. Linker scripts no longer
+need KEEP() for .xt.prop/.xt.lit. Warn once if KEEP is still used for a
+property section base name.
+
+bfd/
+	* elf32-xtensa.c (elf_xtensa_gc_mark_extra_sections): New
+	function. Warn if KEEP is used for a property section.
+	(elf_backend_gc_mark_extra_sections): Define.
+	(elf_xtensa_gc_mark_hook): Update comment.
+
+include/
+	* elf/xtensa.h (XTENSA_PROPERTY_SEC_NAMES): New macro.
+
+ld/
+	* testsuite/ld-xtensa/gc-prop.d: New test.
+	* testsuite/ld-xtensa/gc-prop.map: New test map check.
+	* testsuite/ld-xtensa/gc-prop.s: New test source.
+	* testsuite/ld-xtensa/gc-prop.t: New test script.
+	* testsuite/ld-xtensa/xtensa.exp: Run it.
+---
+ bfd/elf32-xtensa.c                 | 76 ++++++++++++++++++++++++++----
+ include/elf/xtensa.h               |  3 ++
+ ld/testsuite/ld-xtensa/gc-prop.d   |  7 +++
+ ld/testsuite/ld-xtensa/gc-prop.map |  9 ++++
+ ld/testsuite/ld-xtensa/gc-prop.s   |  9 ++++
+ ld/testsuite/ld-xtensa/gc-prop.t   |  7 +++
+ ld/testsuite/ld-xtensa/xtensa.exp  |  1 +
+ 7 files changed, 102 insertions(+), 10 deletions(-)
+ create mode 100644 ld/testsuite/ld-xtensa/gc-prop.d
+ create mode 100644 ld/testsuite/ld-xtensa/gc-prop.map
+ create mode 100644 ld/testsuite/ld-xtensa/gc-prop.s
+ create mode 100644 ld/testsuite/ld-xtensa/gc-prop.t
+
+diff --git a/bfd/elf32-xtensa.c b/bfd/elf32-xtensa.c
+index 02225b9f38a..718a38f0fd5 100644
+--- a/bfd/elf32-xtensa.c
++++ b/bfd/elf32-xtensa.c
+@@ -1325,16 +1325,12 @@ elf_xtensa_gc_mark_hook (asection *sec,
+ 			 struct elf_link_hash_entry *h,
+ 			 unsigned int symndx)
+ {
+-  /* Property sections are marked "KEEP" in the linker scripts, but they
+-     should not cause other sections to be marked.  (This approach relies
+-     on elf_xtensa_discard_info to remove property table entries that
+-     describe discarded sections.  Alternatively, it might be more
+-     efficient to avoid using "KEEP" in the linker scripts and instead use
+-     the gc_mark_extra_sections hook to mark only the property sections
+-     that describe marked sections.  That alternative does not work well
+-     with the current property table sections, which do not correspond
+-     one-to-one with the sections they describe, but that should be fixed
+-     someday.) */
++  /* Nothing refers to a property section, so it is kept alive by
++     elf_xtensa_gc_mark_extra_sections instead, and its relocations must
++     not cause other sections to be marked.  (This relies on
++     elf_xtensa_discard_info to remove property table entries that
++     describe discarded sections, which is needed anyway because a
++     property section may describe more than one section.)  */
+   if (xtensa_is_property_section (sec))
+     return NULL;
+ 
+@@ -1350,6 +1346,65 @@ elf_xtensa_gc_mark_hook (asection *sec,
+ }
+ 
+ 
++/* Property sections are not referenced by anything, so this pass marks
++   the ones describing sections that have been marked.  */
++
++static bool
++elf_xtensa_gc_mark_extra_sections (struct bfd_link_info *info,
++				   elf_gc_mark_hook_fn gc_mark_hook)
++{
++  static const char *const prop_names[] = XTENSA_PROPERTY_SEC_NAMES;
++  bfd *sub;
++  bool warned = false;
++
++  _bfd_elf_gc_mark_extra_sections (info, gc_mark_hook);
++
++  for (sub = info->input_bfds; sub != NULL; sub = sub->link.next)
++    {
++      asection *sec;
++
++      if (!is_xtensa_elf (sub))
++	continue;
++
++      for (sec = sub->sections; sec != NULL; sec = sec->next)
++	{
++	  size_t i;
++
++	  if (!sec->gc_mark
++	      || (sec->flags & SEC_ALLOC) == 0
++	      || xtensa_is_property_section (sec))
++	    continue;
++
++	  for (i = 0; i < sizeof (prop_names) / sizeof (prop_names[0]); i++)
++	    {
++	      asection *prop_sec =
++		xtensa_get_property_section (sec, prop_names[i]);
++
++	      /* Set "gc_mark" directly rather than calling _bfd_elf_gc_mark:
++	         a property section can be a member of the COMDAT group of
++	         the section it describes, and marking a group member retains
++	         the entire group.  Nothing else needs to be marked because
++	         elf_xtensa_gc_mark_hook ignores relocations in property
++	         sections.  */
++	      if (prop_sec != NULL)
++		{
++		  if (!warned && (prop_sec->flags & SEC_KEEP) != 0)
++		    {
++		      info->callbacks->einfo
++			(_("%P: warning: KEEP should not be used for Xtensa "
++			   "property section %s\n"), prop_names[i]);
++		      warned = true;
++		    }
++		  prop_sec->gc_mark = 1;
++		}
++	    }
++	}
++    }
++
++  return true;
++}
++
++
+ /* Create all the dynamic sections.  */
+ 
+ static bool
+@@ -11500,6 +11555,7 @@ static const struct bfd_elf_special_section elf_xtensa_special_sections[] =
+ #define elf_backend_finish_dynamic_sections  elf_xtensa_finish_dynamic_sections
+ #define elf_backend_finish_dynamic_symbol    elf_xtensa_finish_dynamic_symbol
+ #define elf_backend_gc_mark_hook	     elf_xtensa_gc_mark_hook
++#define elf_backend_gc_mark_extra_sections   elf_xtensa_gc_mark_extra_sections
+ #define elf_backend_grok_prstatus	     elf_xtensa_grok_prstatus
+ #define elf_backend_grok_psinfo		     elf_xtensa_grok_psinfo
+ #define elf_backend_hide_symbol		     elf_xtensa_hide_symbol
+diff --git a/include/elf/xtensa.h b/include/elf/xtensa.h
+index 1a9bdf95cf7..339c8bf8ada 100644
+--- a/include/elf/xtensa.h
++++ b/include/elf/xtensa.h
+@@ -131,6 +131,9 @@ END_RELOC_NUMBERS (R_XTENSA_max)
+ #define XTENSA_LIT_SEC_NAME  ".xt.lit"
+ #define XTENSA_PROP_SEC_NAME ".xt.prop"
+ 
++#define XTENSA_PROPERTY_SEC_NAMES \
++  { XTENSA_INSN_SEC_NAME, XTENSA_LIT_SEC_NAME, XTENSA_PROP_SEC_NAME }
++
+ typedef struct property_table_entry_t
+ {
+   bfd_vma address;
+diff --git a/ld/testsuite/ld-xtensa/gc-prop.d b/ld/testsuite/ld-xtensa/gc-prop.d
+new file mode 100644
+index 00000000000..3e8d3a07186
+--- /dev/null
++++ b/ld/testsuite/ld-xtensa/gc-prop.d
+@@ -0,0 +1,7 @@
++#source: gc-prop.s
++#ld: -T gc-prop.t --gc-sections
++#map: gc-prop.map
++#readelf: -SW
++#...
++ +\[ *[0-9]+\] \.xt\.prop +PROGBITS +[0-9a-f]+ +[0-9a-f]+ +0*[1-9a-f][0-9a-f]* .*
++#pass
+diff --git a/ld/testsuite/ld-xtensa/gc-prop.map b/ld/testsuite/ld-xtensa/gc-prop.map
+new file mode 100644
+index 00000000000..85ffa79dff0
+--- /dev/null
++++ b/ld/testsuite/ld-xtensa/gc-prop.map
+@@ -0,0 +1,9 @@
++#...
++Discarded input sections
++#...
++ \.text\.dead +0x[0-9a-f]+ +0x[0-9a-f]+ .*
++#...
++ \.xt\.prop\.dead +0x[0-9a-f]+ +0x[0-9a-f]+ .*
++#...
++\.xt\.prop +0x[0-9a-f]+ +0x0*[1-9a-f][0-9a-f]*
++#pass
+diff --git a/ld/testsuite/ld-xtensa/gc-prop.s b/ld/testsuite/ld-xtensa/gc-prop.s
+new file mode 100644
+index 00000000000..56396206018
+--- /dev/null
++++ b/ld/testsuite/ld-xtensa/gc-prop.s
+@@ -0,0 +1,9 @@
++	.section	.text.dead,"axG",@progbits,dead,comdat
++	.global	dead
++dead:
++	ret
++
++	.text
++	.global	_start
++_start:
++	ret
+diff --git a/ld/testsuite/ld-xtensa/gc-prop.t b/ld/testsuite/ld-xtensa/gc-prop.t
+new file mode 100644
+index 00000000000..d493873cfce
+--- /dev/null
++++ b/ld/testsuite/ld-xtensa/gc-prop.t
+@@ -0,0 +1,7 @@
++ENTRY(_start)
++SECTIONS
++{
++  .text 0x1000 : { *(.literal .literal.* .text .text.*) }
++  .xt.prop 0 : { *(.xt.prop .xt.prop.* .gnu.linkonce.prop.*) }
++  .xt.lit 0 : { *(.xt.lit .xt.lit.* .gnu.linkonce.p.*) }
++}
+diff --git a/ld/testsuite/ld-xtensa/xtensa.exp b/ld/testsuite/ld-xtensa/xtensa.exp
+index 7173c6b21b2..97b7d159a68 100644
+--- a/ld/testsuite/ld-xtensa/xtensa.exp
++++ b/ld/testsuite/ld-xtensa/xtensa.exp
+@@ -26,6 +26,7 @@ if { !([istarget "xtensa*-*-*"]) } {
+ run_dump_test "call_overflow"
+ run_dump_test "coalesce"
+ run_dump_test "diff_overflow"
++run_dump_test "gc-prop"
+ run_dump_test "lcall"
+ run_dump_test "relax-diff1"
+ run_dump_test "relax-loc"
+-- 
+2.55.0
+

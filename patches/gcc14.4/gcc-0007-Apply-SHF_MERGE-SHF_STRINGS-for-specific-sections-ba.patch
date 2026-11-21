@@ -1,0 +1,153 @@
+From 37fac3073d9985becef39a4435344268fe3ab789 Mon Sep 17 00:00:00 2001
+From: Maxim Prokhorov <prokhorov.max@outlook.com>
+Date: Mon, 28 Apr 2025 14:00:50 +0300
+Subject: [PATCH 07/14] Apply SHF_MERGE | SHF_STRINGS for specific sections
+ based on prefix
+
+aka objcopy --set-section-flags=.foobar=strings,merge but w/o actually calling objcopy
+section name probed with startswith(s, ...), still allowing unique sections to match
+
+same as 4.x and 10.x, esp8266 newlib needs this to implement PSTR(...) / PSTR_ATTR
+previous versions assumed that the varasm injects section attribute text verbatim after
+emitting `.section `, which no longer works correctly as compiler expects unquoted literal inside
+
+For the releases/gcc-14.4.0
+---
+ gcc/config/xtensa/xtensa.cc                   | 59 +++++++++++++++++++
+ gcc/config/xtensa/xtensa.opt                  |  4 ++
+ gcc/testsuite/gcc.target/xtensa/flashstring.c | 27 +++++++++
+ 3 files changed, 90 insertions(+)
+ create mode 100644 gcc/testsuite/gcc.target/xtensa/flashstring.c
+
+diff --git a/gcc/config/xtensa/xtensa.cc b/gcc/config/xtensa/xtensa.cc
+index d15b0463a9b..e710e456f25 100644
+--- a/gcc/config/xtensa/xtensa.cc
++++ b/gcc/config/xtensa/xtensa.cc
+@@ -3032,6 +3032,55 @@ xtensa_return_in_msb (const_tree valtype)
+ }
+ 
+ 
++/* Forcibly flagged as SHF_MERGE | SHF_STRINGS */
++static vec<const char*, va_heap> *xtensa_flash_string_section_prefixes = nullptr;
++
++static void
++xtensa_init_flash_string_section_prefixes ()
++{
++  xtensa_flash_string_section_prefixes = new vec<const char*, va_heap>(vNULL);
++  xtensa_flash_string_section_prefixes->safe_push (
++		 static_cast<const char *>(".irom.exceptiontext"));
++  xtensa_flash_string_section_prefixes->safe_push (
++		 static_cast<const char *>(".irom0.pstr"));
++
++  unsigned int i;
++  cl_deferred_option *opt;
++  vec<cl_deferred_option> *v
++    = (vec<cl_deferred_option> *) xtensa_opt_flash_string_section_prefixes;
++
++  if (!v)
++    return;
++
++  FOR_EACH_VEC_ELT (*v, i, opt)
++  {
++    switch (opt->opt_index)
++    {
++      case OPT_mflash_string_section_prefix_:
++	xtensa_flash_string_section_prefixes->safe_push (
++		static_cast<const char *>(xstrdup (opt->arg)));
++	break;
++
++      default:
++	gcc_unreachable ();
++    }
++  }
++}
++
++
++static bool
++xtensa_has_flash_string_section_prefix (const char *name)
++{
++  for (const char *prefix : *xtensa_flash_string_section_prefixes)
++    {
++      if (startswith (name, prefix))
++	return true;
++    }
++
++  return false;
++}
++
++
+ static void
+ xtensa_option_override (void)
+ {
+@@ -3086,6 +3135,10 @@ xtensa_option_override (void)
+ 	}
+     }
+ 
++  /* Initialize default & user provided flash string section prefixes */
++  if (!xtensa_flash_string_section_prefixes)
++    xtensa_init_flash_string_section_prefixes ();
++
+   init_machine_status = xtensa_init_machine_status;
+ 
+   /* Check PIC settings.  PIC is only supported when using L32R
+@@ -4603,6 +4656,12 @@ xtensa_multibss_section_type_flags (tree decl, const char *name, int reloc)
+ 		 "%<.bss%> section");
+     }
+ 
++  if (xtensa_has_flash_string_section_prefix (name))
++  {
++    flags &= ~(SECTION_NOTYPE);
++    flags |= SECTION_MERGE | SECTION_STRINGS | (SECTION_ENTSIZE & 1);
++  }
++
+   return flags;
+ }
+ 
+diff --git a/gcc/config/xtensa/xtensa.opt b/gcc/config/xtensa/xtensa.opt
+index df4e7779320..43e05fa4dc6 100644
+--- a/gcc/config/xtensa/xtensa.opt
++++ b/gcc/config/xtensa/xtensa.opt
+@@ -75,3 +75,7 @@ Use windowed registers ABI.
+ mstrict-align
+ Target Var(xtensa_strict_alignment) Init(XTENSA_STRICT_ALIGNMENT_UNDEFINED)
+ Do not use unaligned memory references.
++
++mflash-string-section-prefix=
++Target RejectNegative Joined Defer Var(xtensa_opt_flash_string_section_prefixes)
++-mflash-string-section-prefix=<section> One or more section prefixes, forcibly flagged as SHF_MERGE | SHF_STRINGS. Includes .irom.exceptiontext and .irom0.pstr by default.
+diff --git a/gcc/testsuite/gcc.target/xtensa/flashstring.c b/gcc/testsuite/gcc.target/xtensa/flashstring.c
+new file mode 100644
+index 00000000000..19993d86b11
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/xtensa/flashstring.c
+@@ -0,0 +1,27 @@
++/* { dg-do compile */
++/* { dg-do compile { target { c || c++11 } } } */
++/* { dg-options "-fdata-sections -mflash-string-section-prefix=.test.one -mflash-string-section-prefix=.test.two" } */
++
++const char a[] __attribute__((__section__(".test.one.123"))) = "aaaa123bbbb";
++const char b[] __attribute__((__section__(".test.one"))) = "123123123123";
++const char c[] __attribute__((__section__(".test.two.123"))) = "oaisjd912j";
++const char d[] __attribute__((__section__(".test.two"))) = "aosjdasje";
++const char e[] __attribute__((__section__(".test"))) = "bbbbccccdddd";
++
++#ifdef __cplusplus
++template <typename T>
++struct Foo {
++  [[gnu::section(".test.one.template")]]
++  const char data[];
++};
++
++template <typename T>
++const char Foo<T>::data[] = "kad9aue";
++#endif
++
++char f[] = "cccc";
++
++/* { dg-final { scan-assembler "\.test\.one*,\"aMS\",@progbits,1" } } */
++/* { dg-final { scan-assembler "\.test\.two*,\"aMS\",@progbits,1" } } */
++/* { dg-final { scan-assembler "\.test,\"a\"" } } */
++/* { dg-final { scan-assembler "\.data\.f,\"aw\"" } } */
+-- 
+2.55.0
+

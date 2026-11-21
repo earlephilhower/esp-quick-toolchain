@@ -1,0 +1,43 @@
+From 9821b531a089149054dcd931d1c6e0ba468bd364 Mon Sep 17 00:00:00 2001
+From: Alexey Lapshin <alexey.lapshin@espressif.com>
+Date: Mon, 28 Sep 2026 23:59:53 +0700
+Subject: [PATCH 03/14] xtensa: Don't index reg_renumber before LRA in
+ xt_true_regnum
+
+xt_true_regnum is used by move expanders and insn conditions, which
+IRA invokes through emit_move_insn and recog_memoized when emitting
+moves for regional allocation.  At that point reg_renumber has not
+been resized to cover the new pseudos, so indexing it reads out of
+bounds.  Before LRA starts reg_renumber holds no final assignments,
+so only consult it once LRA is in progress or reload has completed.
+
+gcc/ChangeLog:
+	PR target/107549
+
+	* config/xtensa/xtensa.cc (xt_true_regnum): Don't index
+	reg_renumber before LRA starts.
+---
+ gcc/config/xtensa/xtensa.cc | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/gcc/config/xtensa/xtensa.cc b/gcc/config/xtensa/xtensa.cc
+index 2d6cf9bd18b..590715fb605 100644
+--- a/gcc/config/xtensa/xtensa.cc
++++ b/gcc/config/xtensa/xtensa.cc
+@@ -491,9 +491,12 @@ xt_true_regnum (rtx x)
+ {
+   if (REG_P (x))
+     {
++      /* Before LRA, reg_renumber need not cover pseudos created since it
++	 was last resized (e.g. by ira_emit during regional allocation).  */
+       if (! HARD_REGISTER_P (x)
+ 	  && reg_renumber
+-	  && (lra_in_progress || reg_renumber[REGNO (x)] >= 0))
++	  && (lra_in_progress
++	      || (reload_completed && reg_renumber[REGNO (x)] >= 0)))
+ 	return reg_renumber[REGNO (x)];
+       return REGNO (x);
+     }
+-- 
+2.55.0
+

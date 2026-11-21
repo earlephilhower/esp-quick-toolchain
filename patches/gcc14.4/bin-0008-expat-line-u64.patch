@@ -1,0 +1,53 @@
+diff --git a/gdb/xml-support.c b/gdb/xml-support.c
+index d806b53c9fa..027ef0db77b 100644
+--- a/gdb/xml-support.c
++++ b/gdb/xml-support.c
+@@ -23,6 +23,7 @@
+ #include "gdbsupport/filestuff.h"
+ #include <vector>
+ #include <string>
++#include <inttypes.h>
+ #include "cli/cli-style.h"
+ #include "ui-out.h"
+ 
+@@ -143,7 +144,7 @@ struct gdb_xml_parser
+   struct gdb_exception m_error;
+ 
+   /* The line of the thrown error, or 0.  */
+-  int m_last_line;
++  uint64_t m_last_line;
+ 
+   /* The name of the expected / default DTD, if specified.  */
+   const char *m_dtd_name;
+@@ -179,11 +180,11 @@ gdb_xml_body_text (void *data, const XML_Char *text, int length)
+ void
+ gdb_xml_parser::vdebug (const char *format, va_list ap)
+ {
+-  int line = XML_GetCurrentLineNumber (m_expat_parser);
++  uint64_t line = XML_GetCurrentLineNumber64 (m_expat_parser);
+ 
+   std::string message = string_vprintf (format, ap);
+   if (line)
+-    gdb_printf (gdb_stderr, "%s (line %d): %s\n",
++    gdb_printf (gdb_stderr, "%s (line %" PRIu64 "): %s\n",
+ 		m_name, line, message.c_str ());
+   else
+     gdb_printf (gdb_stderr, "%s: %s\n",
+@@ -208,7 +209,7 @@ gdb_xml_debug (struct gdb_xml_parser *parser, const char *format, ...)
+ void
+ gdb_xml_parser::verror (const char *format, va_list ap)
+ {
+-  int line = XML_GetCurrentLineNumber (m_expat_parser);
++  uint64_t line = XML_GetCurrentLineNumber64 (m_expat_parser);
+ 
+   m_last_line = line;
+   throw_verror (XML_PARSE_ERROR, format, ap);
+@@ -606,7 +607,7 @@ gdb_xml_parser::parse (const char *buffer)
+     }
+ 
+   if (m_last_line != 0)
+-    warning (_("while parsing %s (at line %d): %s"), m_name,
++    warning (_("while parsing %s (at line %" PRIu64 "): %s"), m_name,
+ 	     m_last_line, error_string);
+   else
+     warning (_("while parsing %s: %s"), m_name, error_string);

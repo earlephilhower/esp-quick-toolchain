@@ -1,0 +1,69 @@
+language: Cpp
+
+utils:
+  finder:
+    any:
+      - matches: find-string
+      - matches: find-concatenated-string
+
+  throwing-function:
+    kind: call_expression
+    any:
+      # manually extracted via `git grep '__throw.*(.*const char'`
+      # sometimes prefixed with std::
+      # std/optional
+      - regex: ^(?:std::|this->|)__throw_bad_optional_access\(
+      # std/variant
+      - regex: ^(?:std::|this->|)__throw_bad_variant_access\(
+      # std/format
+      - regex: ^(?:std::|this->|)__throw_format_error\(
+      # bits/regex_error.h
+      - regex: ^(?:std::|this->|)__throw_regex_error\(
+      # bits/functexcept.h
+      - regex: ^(?:std::|this->|)__throw_domain_error\(
+      - regex: ^(?:std::|this->|)__throw_invalid_argument\(
+      - regex: ^(?:std::|this->|)__throw_ios_failure\(
+      - regex: ^(?:std::|this->|)__throw_length_error\(
+      - regex: ^(?:std::|this->|)__throw_logic_error\(
+      - regex: ^(?:std::|this->|)__throw_on_error\(
+      - regex: ^(?:std::|this->|)__throw_out_of_range\(
+      - regex: ^(?:std::|this->|)__throw_out_of_range_fmt\(
+      - regex: ^(?:std::|this->|)__throw_overflow_error\(
+      - regex: ^(?:std::|this->|)__throw_range_error\(
+      - regex: ^(?:std::|this->|)__throw_runtime_error\(
+      - regex: ^(?:std::|this->|)__throw_underflow_error\(
+      # calling '__throw_...(...)' internally
+      # sometimes prefixed with this->
+      - regex: ^(?:std::|this->|)_M_check\(
+      - regex: ^(?:std::|this->|)_M_check_len\(
+      - regex: ^(?:std::|this->|)_M_check_length\(
+
+  localizable-macro:
+    kind: call_expression
+    regex: __N\(
+    pattern:
+      context:
+        __N($$$)
+      inside:
+        matches: throwing-function
+
+  find-string:
+    kind: string_literal
+    inside:
+      kind: argument_list
+      inside:
+        any:
+          - matches: localizable-macro
+          - matches: throwing-function
+
+  find-concatenated-string:
+    kind: concatenated_string
+    inside:
+      kind: argument_list
+      inside:
+        any:
+          - matches: localizable-macro
+          - matches: throwing-function
+
+rule:
+  matches: finder

@@ -1,0 +1,35 @@
+From d6db8f4a296020281e7aa5a8660c1f3446fd1335 Mon Sep 17 00:00:00 2001
+From: Maxim Prokhorov <prokhorov.max@outlook.com>
+Date: Sat, 26 Sep 2026 21:24:05 +0300
+Subject: [PATCH] gcc14.x section name w/o inline asm
+
+pretend that compiler knows the meaning of pstr
+---
+ newlib/libc/machine/xtensa/sys/pgmspace.h | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/newlib/libc/machine/xtensa/sys/pgmspace.h b/newlib/libc/machine/xtensa/sys/pgmspace.h
+index b164074ac..ed4177fff 100644
+--- a/newlib/libc/machine/xtensa/sys/pgmspace.h
++++ b/newlib/libc/machine/xtensa/sys/pgmspace.h
+@@ -23,7 +23,7 @@ extern "C" {
+   // same file as a non-static PROGMEM object.
+   // Ref: https://gcc.gnu.org/onlinedocs/gcc-3.2/gcc/Variable-Attributes.html
+   // Place each progmem object into its own named section, avoiding conflicts
+-  #define PROGMEM __attribute__((section( "\".irom.text." __FILE__ "." __PGMSPACE_STRINGIZE(__LINE__) "."  __PGMSPACE_STRINGIZE(__COUNTER__) "\"")))
++  #define PROGMEM __attribute__((section(".irom.text." __FILE__ "." __PGMSPACE_STRINGIZE(__LINE__) "."  __PGMSPACE_STRINGIZE(__COUNTER__))))
+ #endif
+ #ifndef PGM_P
+   #define PGM_P              const char *
+@@ -41,7 +41,7 @@ extern "C" {
+ #ifndef PSTR_ATTR
+   // PSTR() macro uses section attribute to flag the static data as flash string
+   // Allow users to flag their own strings independently. Note that this does not set initial alignment
+-  #define PSTR_ATTR __attribute__((section( "\".irom0.pstr." __FILE__ "." __PGMSPACE_STRINGIZE(__LINE__) "."  __PGMSPACE_STRINGIZE(__COUNTER__) "\", \"aSM\", @progbits, 1 #")))
++  #define PSTR_ATTR __attribute__((section(".irom0.pstr." __FILE__ "." __PGMSPACE_STRINGIZE(__LINE__) "."  __PGMSPACE_STRINGIZE(__COUNTER__))))
+ #endif
+ #ifndef PSTR_CONSTEXPR
+   // PSTR() macro return value should be able exist in constexpr context
+-- 
+2.55.0
+

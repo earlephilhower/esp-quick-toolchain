@@ -1,0 +1,60 @@
+From d1d60b9957aac37623e9fe4cc10ba950b4462ada Mon Sep 17 00:00:00 2001
+From: earlephilhower/esp-quick-toolchain <woot>
+Date: Sat, 26 Sep 2026 14:45:18 +0300
+Subject: [PATCH 10/14] ctype inline pgmread
+
+---
+ libstdc++-v3/config/os/newlib/ctype_inline.h | 24 ++++++++++++++++++--
+ 1 file changed, 22 insertions(+), 2 deletions(-)
+
+diff --git a/libstdc++-v3/config/os/newlib/ctype_inline.h b/libstdc++-v3/config/os/newlib/ctype_inline.h
+index 55c0de53efb..f93a44ae67d 100644
+--- a/libstdc++-v3/config/os/newlib/ctype_inline.h
++++ b/libstdc++-v3/config/os/newlib/ctype_inline.h
+@@ -34,6 +34,26 @@
+ // ctype bits to be inlined go here. Non-inlinable (ie virtual do_*)
+ // functions go in ctype.cc
+ 
++#ifndef __ctype__pgm_read_with_offset
++
++#define __ctype__pgm_read_with_offset(addr, res) \
++  asm("extui    %0, %1, 0, 2\n"     /* Extract offset within word (in bytes) */ \
++      "sub      %1, %1, %0\n"       /* Subtract offset from addr, yielding an aligned address */ \
++      "l32i.n   %1, %1, 0x0\n"      /* Load word from aligned address */ \
++      "ssa8l    %0\n"               /* Prepare to shift by offset (in bits) */ \
++      "src      %0, %1, %1\n"       /* Shift right; now the requested byte is the first one */ \
++      :"=r"(res), "=r"(addr) \
++      :"1"(addr) \
++:);
++
++static inline unsigned char __ctype__pgm_read_byte_inlined(const void* addr) {
++  unsigned long res;
++  __ctype__pgm_read_with_offset(addr, res);
++  return (unsigned char) res;     /* This masks the lower byte from the returned word */
++}
++
++#endif
++
+ namespace std _GLIBCXX_VISIBILITY(default)
+ {
+ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+@@ -41,14 +61,14 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
+   bool
+   ctype<char>::
+   is(mask __m, char __c) const
+-  { return _M_table[static_cast<unsigned char>(__c)] & __m; }
++  { return __ctype__pgm_read_byte_inlined(&_M_table[static_cast<unsigned char>(__c)]) & __m; }
+ 
+   const char*
+   ctype<char>::
+   is(const char* __low, const char* __high, mask* __vec) const
+   {
+     while (__low < __high)
+-      *__vec++ = _M_table[static_cast<unsigned char>(*__low++)];
++      *__vec++ = __ctype__pgm_read_byte_inlined(&_M_table[static_cast<unsigned char>(*__low++)]);
+     return __high;
+   }
+ 
+-- 
+2.55.0
+

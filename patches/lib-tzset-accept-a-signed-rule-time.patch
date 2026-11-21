@@ -1,0 +1,134 @@
+From 351d222373e629ec85194538cd9a8ae32f67ae34 Mon Sep 17 00:00:00 2001
+From: CyberNative AI LLC <hello@cybernative.ai>
+Date: Tue, 20 Oct 2026 10:07:33 +0000
+Subject: [PATCH] newlib: tzset: accept a signed rule time
+
+POSIX.1-2024 allows the time of a DST rule to be negative or to carry a
+plus sign, and tzdb has used negative rule times for Greenland since
+2013e.  Since 2023a, America/Nuuk has been
+"<-02>2<-01>,M3.5.0/-1,M10.5.0/0".  _tzset_unlocked_r read the time
+with %hu, so "-1" became 65535 hours.  The start of DST then fell
+years later, and localtime reported DST from 1 January until the last
+Sunday in March every year.
+
+Parse an optional sign the same way as for the UTC offsets, and add
+localtime_r checks for rule times to the tzset test.
+---
+ newlib/libc/time/tzset_r.c           | 29 ++++++++++++-----
+ newlib/testsuite/newlib.time/tzset.c | 47 ++++++++++++++++++++++++++++
+ 2 files changed, 68 insertions(+), 8 deletions(-)
+
+diff --git a/newlib/libc/time/tzset_r.c b/newlib/libc/time/tzset_r.c
+index a6f15f6df..5ea922e1e 100644
+--- a/newlib/libc/time/tzset_r.c
++++ b/newlib/libc/time/tzset_r.c
+@@ -227,17 +227,30 @@ _tzset_unlocked_r (struct _reent *reent_ptr)
+       mm = 0;
+       ss = 0;
+       n = 0;
++      sign = 1;
+       
+       if (*tzenv == '/')
+-	if (sscanf (tzenv, "/%hu%n:%hu%n:%hu%n", &hh, &n, &mm, &n, &ss, &n) <= 0)
+-	  {
+-	    /* error in time format, restore tz rules to default and return */
+-	    tz->__tzrule[0] = default_tzrule;
+-	    tz->__tzrule[1] = default_tzrule;
+-            return;
+-          }
++	{
++	  /* POSIX.1-2024 allows a signed time, e.g. "M3.5.0/-1" */
++	  ++tzenv;
++	  if (*tzenv == '-')
++	    {
++	      sign = -1;
++	      ++tzenv;
++	    }
++	  else if (*tzenv == '+')
++	    ++tzenv;
++
++	  if (sscanf (tzenv, "%hu%n:%hu%n:%hu%n", &hh, &n, &mm, &n, &ss, &n) <= 0)
++	    {
++	      /* error in time format, restore tz rules to default and return */
++	      tz->__tzrule[0] = default_tzrule;
++	      tz->__tzrule[1] = default_tzrule;
++	      return;
++	    }
++	}
+ 
+-      tz->__tzrule[i].s = ss + SECSPERMIN * mm + SECSPERHOUR  * hh;
++      tz->__tzrule[i].s = sign * (ss + SECSPERMIN * mm + SECSPERHOUR  * hh);
+       
+       tzenv += n;
+     }
+diff --git a/newlib/testsuite/newlib.time/tzset.c b/newlib/testsuite/newlib.time/tzset.c
+index 870d42642..6e4a8eb22 100644
+--- a/newlib/testsuite/newlib.time/tzset.c
++++ b/newlib/testsuite/newlib.time/tzset.c
+@@ -148,6 +148,32 @@ struct tz_test test_timezones[] = {
+     {"M\0STR7:30:36",   0,  NO_TIME}
+ };
+ 
++// Rule times, checked with localtime_r(): the tests above use mktime() with a
++// fixed tm_isdst, so they don't depend on when DST starts or ends.
++struct rule_test {
++    const char* tzstr;
++    time_t utc;
++    int isdst;
++    int hour;
++};
++
++extern struct rule_test test_rules[];
++
++struct rule_test test_rules[] = {
++    // America/Nuuk since tzdb 2023a: a negative rule time (POSIX.1-2024)
++    {"<-02>2<-01>,M3.5.0/-1,M10.5.0/0",  1642248000, 0, 10},  // 2022-01-15 12:00 UTC
++    {"<-02>2<-01>,M3.5.0/-1,M10.5.0/0",  1648341000, 0, 22},  // 2022-03-27 00:30 UTC
++    {"<-02>2<-01>,M3.5.0/-1,M10.5.0/0",  1648344600, 1,  0},  // 2022-03-27 01:30 UTC
++    {"<-02>2<-01>,M3.5.0/-1,M10.5.0/0",  1667089800, 1, 23},  // 2022-10-30 00:30 UTC
++    {"<-02>2<-01>,M3.5.0/-1,M10.5.0/0",  1667093400, 0, 23},  // 2022-10-30 01:30 UTC
++    // explicit plus sign
++    {"EST5EDT,M3.2.0/+2,M11.1.0/+2",     1642248000, 0,  7},  // 2022-01-15 12:00 UTC
++    {"EST5EDT,M3.2.0/+2,M11.1.0/+2",     1657886400, 1,  8},  // 2022-07-15 12:00 UTC
++    // Asia/Jerusalem: a rule time past 24 hours
++    {"IST-2IDT,M3.4.4/26,M10.5.0",       1648164600, 0,  1},  // 2022-03-24 23:30 UTC
++    {"IST-2IDT,M3.4.4/26,M10.5.0",       1648168200, 1,  3},  // 2022-03-25 00:30 UTC
++};
++
+ // END test vectors
+ 
+ static int failed = 0;
+@@ -188,9 +214,30 @@ void test_TimezoneStrings(void)
+     }
+ }
+ 
++void test_RuleTimes(void)
++{
++    char buffer[128];
++
++    for (int i = 0; i < (sizeof(test_rules) / sizeof(struct rule_test)); ++i)
++    {
++        struct rule_test ptr = test_rules[i];
++        struct tm tm;
++
++        setenv("TZ", ptr.tzstr, 1);
++        tzset();
++        localtime_r(&ptr.utc, &tm);
++
++        snprintf(buffer, 128, "tm_isdst at %lld, timezone = \"%s\"", (long long) ptr.utc, ptr.tzstr);
++        TEST_ASSERT_EQUAL_INT_MESSAGE(ptr.isdst, tm.tm_isdst, buffer);
++        snprintf(buffer, 128, "tm_hour at %lld, timezone = \"%s\"", (long long) ptr.utc, ptr.tzstr);
++        TEST_ASSERT_EQUAL_INT_MESSAGE(ptr.hour, tm.tm_hour, buffer);
++    }
++}
++
+ int main()
+ {
+     test_TimezoneStrings();
++    test_RuleTimes();
+     exit (failed);
+ }
+ 
+-- 
+2.56.0
+

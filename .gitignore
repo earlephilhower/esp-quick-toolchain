@@ -1,1 +1,12 @@
-.ghpass
+*.py[cod]
+.ghtoken
+.ghuser
+.mypy_cache/
+.stage.*
+__pycache__/
+arduino/
+arena.*/
+log.*
+package/
+repo/
+xtensa-lx106-elf.*/

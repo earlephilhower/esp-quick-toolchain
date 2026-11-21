@@ -1,0 +1,28 @@
+diff --git a/newlib/libm/math/w_tgamma.c b/newlib/libm/math/w_tgamma.c
+index c09092510..b35004611 100644
+--- a/newlib/libm/math/w_tgamma.c
++++ b/newlib/libm/math/w_tgamma.c
+@@ -15,6 +15,9 @@
+  * depending on the library mode.
+  */
+ 
++/* newlib-4.0.0:newlib/libc/sys/linux/cmath/math_private.h */
++extern double __ieee754_tgamma (double);
++
+ #include "fdlibm.h"
+ 
+ #ifndef _DOUBLE_IS_32BITS
+diff --git a/newlib/libm/math/wf_tgamma.c b/newlib/libm/math/wf_tgamma.c
+index 88567b2eb..d0429c7a0 100644
+--- a/newlib/libm/math/wf_tgamma.c
++++ b/newlib/libm/math/wf_tgamma.c
+@@ -13,6 +13,9 @@
+  * ====================================================
+  */
+ 
++/* newlib-4.0.0:newlib/libc/sys/linux/cmath/math_private.h */
++extern float __ieee754_tgammaf (float);
++
+ #include "math.h"
+ #include "fdlibm.h"
+ 

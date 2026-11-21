@@ -1,0 +1,24 @@
+diff --git a/include/xtensa/config/core-isa.h b/include/xtensa/config/core-isa.h
+index 612fbf8..c2c848f 100644
+--- a/include/xtensa/config/core-isa.h
++++ b/include/xtensa/config/core-isa.h
+@@ -90,6 +90,10 @@
+ #define XCHAL_HAVE_MAC16		0	/* MAC16 package */
+ #define XCHAL_HAVE_VECTORFPU2005	0	/* vector floating-point pkg */
+ #define XCHAL_HAVE_FP			0	/* floating point pkg */
++#define XCHAL_HAVE_FP_DIV		0	/* FP with DIV instructions */
++#define XCHAL_HAVE_FP_RECIP		0	/* FP with RECIP instructions */
++#define XCHAL_HAVE_FP_SQRT		0	/* FP with SQRT instructions */
++#define XCHAL_HAVE_FP_RSQRT		0	/* FP with RSQRT instructions */
+ #define XCHAL_HAVE_DFP			0	/* double precision FP pkg */
+ #define XCHAL_HAVE_DFP_accel		0	/* double precision FP acceleration pkg */
+ #define XCHAL_HAVE_VECTRA1		0	/* Vectra I  pkg */
+@@ -436,6 +440,8 @@
+ 
+ /*  See core-matmap.h header file for more details.  */
+ 
++#define XCHAL_HAVE_MMU          0
++
+ #define XCHAL_HAVE_TLBS			1	/* inverse of HAVE_CACHEATTR */
+ #define XCHAL_HAVE_SPANNING_WAY		1	/* one way maps I+D 4GB vaddr */
+ #define XCHAL_SPANNING_WAY		0	/* TLB spanning way number */
