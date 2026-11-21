@@ -1,0 +1,30 @@
+From dd41109e2d400137463e7c047a5d8de33fed819f Mon Sep 17 00:00:00 2001
+From: Max Filippov <jcmvbkbc@gmail.com>
+Date: Wed, 6 Sep 2023 20:13:22 -0700
+Subject: [PATCH] gcc: xtensa: fix salt/saltu version check
+
+gcc/
+	* config/xtensa/xtensa.h (TARGET_SALT): Change HW version from
+	260000 (which corresponds to RF-2014.0) to 270000 (which
+	corresponds to RG-2015.0, the release where salt/saltu opcodes
+	were introduced).
+---
+ gcc/config/xtensa/xtensa.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/gcc/config/xtensa/xtensa.h b/gcc/config/xtensa/xtensa.h
+index 779fd3bf4..3edf3bfa4 100644
+--- a/gcc/config/xtensa/xtensa.h
++++ b/gcc/config/xtensa/xtensa.h
+@@ -68,7 +68,7 @@ along with GCC; see the file COPYING3.  If not see
+ #define TARGET_WINDOWED_ABI	(XSHAL_ABI == XTHAL_ABI_WINDOWED)
+ #define TARGET_DEBUG		XCHAL_HAVE_DEBUG
+ #define TARGET_L32R		XCHAL_HAVE_L32R
+-#define TARGET_SALT		(XCHAL_HW_MIN_VERSION >= 260000)
++#define TARGET_SALT		(XCHAL_HW_MIN_VERSION >= 270000)
+ 
+ #define TARGET_DEFAULT (MASK_SERIALIZE_VOLATILE)
+ 
+-- 
+2.30.2
+

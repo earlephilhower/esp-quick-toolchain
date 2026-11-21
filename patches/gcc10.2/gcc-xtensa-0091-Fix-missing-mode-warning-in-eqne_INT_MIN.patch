@@ -1,0 +1,29 @@
+From 6b5c7ac459c711a4a86703b4404717866dba8052 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Sun, 2 Jul 2023 02:19:03 +0900
+Subject: [PATCH] xtensa: Fix missing mode warning in "*eqne_INT_MIN"
+
+gcc/ChangeLog:
+
+	* config/xtensa/xtensa.md (*eqne_INT_MIN):
+	Add missing ":SI" to the match_operator.
+---
+ gcc/config/xtensa/xtensa.md | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index 921568e02..035d6214d 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -3196,7 +3196,7 @@
+ 
+ (define_insn_and_split "*eqne_INT_MIN"
+   [(set (match_operand:SI 0 "register_operand" "=a")
+-	(match_operator 2 "boolean_operator"
++	(match_operator:SI 2 "boolean_operator"
+ 		[(match_operand:SI 1 "register_operand" "r")
+ 		 (const_int -2147483648)]))]
+   "TARGET_ABS"
+-- 
+2.30.2
+

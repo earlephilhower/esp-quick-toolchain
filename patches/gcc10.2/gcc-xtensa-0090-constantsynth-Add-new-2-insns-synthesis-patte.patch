@@ -1,0 +1,69 @@
+From 546db479dff7193e0b08eecbe3dc1a0cfb880e3a Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Sun, 18 Jun 2023 16:09:10 +0900
+Subject: [PATCH] xtensa: constantsynth: Add new 2-insns synthesis pattern
+
+This patch adds a new 2-instructions constant synthesis pattern:
+
+-  A non-negative square value that root can fit into a signed 12-bit:
+    => "MOVI(.N) Ax, simm12" + "MULL Ax, Ax, Ax"
+
+Due to the execution cost of the integer multiply instruction (MULL), this
+synthesis works only when the 32-bit Integer Multiply Option is configured
+and optimize for size is specified.
+
+gcc/ChangeLog:
+
+	* config/xtensa/xtensa.c (xtensa_constantsynth_2insn):
+	Add new pattern for the abovementioned case.
+---
+ gcc/config/xtensa/xtensa.c | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index 48d8822f9..ac9f79d74 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -58,6 +58,7 @@ along with GCC; see the file COPYING3.  If not see
+ #include "insn-attr.h"
+ #include "tree-pass.h"
+ #include "print-rtl.h"
++#include <math.h>
+ 
+ /* This file should be included last.  */
+ #include "target-def.h"
+@@ -1057,7 +1058,7 @@ xtensa_constantsynth_2insn (rtx dst, HOST_WIDE_INT srcval,
+ {
+   HOST_WIDE_INT imm = INT_MAX;
+   rtx x = NULL_RTX;
+-  int shift;
++  int shift, sqr;
+ 
+   gcc_assert (REG_P (dst));
+ 
+@@ -1068,7 +1069,6 @@ xtensa_constantsynth_2insn (rtx dst, HOST_WIDE_INT srcval,
+       x = gen_lshrsi3 (dst, dst, GEN_INT (32 - shift));
+     }
+ 
+-
+   shift = ctz_hwi (srcval);
+   if ((!x || (TARGET_DENSITY && ! IN_RANGE (imm, -32, 95)))
+       && xtensa_simm12b (srcval >> shift))
+@@ -1095,6 +1095,14 @@ xtensa_constantsynth_2insn (rtx dst, HOST_WIDE_INT srcval,
+       x = gen_addsi3 (dst, dst, GEN_INT (imm1));
+     }
+ 
++  sqr = (int) floorf (sqrtf (srcval));
++  if (TARGET_MUL32 && optimize_size
++      && !x && IN_RANGE (srcval, 0, (2047 * 2047)) && sqr * sqr == srcval)
++    {
++      imm = sqr;
++      x = gen_mulsi3 (dst, dst, dst);
++    }
++
+   if (!x)
+     return 0;
+ 
+-- 
+2.30.2
+

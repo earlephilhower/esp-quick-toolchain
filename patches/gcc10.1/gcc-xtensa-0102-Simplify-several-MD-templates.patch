@@ -1,0 +1,264 @@
+From a863b7684e0a9b54f2331488be99db27eca13cdf Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Fri, 31 May 2024 19:23:13 +0900
+Subject: [PATCH] xtensa: Simplify several MD templates
+
+No functional changes.
+
+gcc/ChangeLog:
+
+	* config/xtensa/predicates.md
+	(subreg_HQI_lowpart_operator, xtensa_sminmax_operator):
+	New operator predicates.
+	* config/xtensa/xtensa-protos.h (xtensa_match_CLAMPS_imms_p):
+	Remove.
+	* config/xtensa/xtensa.c (xtensa_match_CLAMPS_imms_p): Ditto.
+	* config/xtensa/xtensa.md
+	(*addsubx, *extzvsi-1bit_ashlsi3, *extzvsi-1bit_addsubx):
+	Revise the output statements by conditional ternary operator rather
+	than switch-case clause in order to avoid using gcc_unreachable().
+	(xtensa_clamps): Reduce to a single pattern definition using the
+	predicate added above.
+	(Some split patterns to assist *masktrue_const_bitcmpl): Ditto.
+---
+ gcc/config/xtensa/predicates.md   |  23 +++++++
+ gcc/config/xtensa/xtensa-protos.h |   1 -
+ gcc/config/xtensa/xtensa.c        |  10 ---
+ gcc/config/xtensa/xtensa.md       | 109 ++++++------------------------
+ 4 files changed, 43 insertions(+), 100 deletions(-)
+
+diff --git a/gcc/config/xtensa/predicates.md b/gcc/config/xtensa/predicates.md
+index 54ce304b1..a01a9f46e 100644
+--- a/gcc/config/xtensa/predicates.md
++++ b/gcc/config/xtensa/predicates.md
+@@ -203,6 +203,29 @@
+ (define_predicate "xtensa_bit_join_operator"
+   (match_code "plus,ior"))
+ 
++(define_predicate "subreg_HQI_lowpart_operator"
++  (match_code "subreg")
++{
++  int ofs = SUBREG_BYTE (op), pos = 0;
++  switch (GET_MODE (op))
++    {
++    case QImode:
++      if (BYTES_BIG_ENDIAN)
++	pos = 3;
++      break;
++    case HImode:
++      if (BYTES_BIG_ENDIAN)
++	pos = 2;
++      break;
++    default:
++      return false;
++    }
++  return ofs == pos;
++})
++
++(define_predicate "xtensa_sminmax_operator"
++  (match_code "smin,smax"))
++
+ (define_predicate "tls_symbol_operand"
+   (and (match_code "symbol_ref")
+        (match_test "SYMBOL_REF_TLS_MODEL (op) != 0")))
+diff --git a/gcc/config/xtensa/xtensa-protos.h b/gcc/config/xtensa/xtensa-protos.h
+index 30e1cca74..e1f12d088 100644
+--- a/gcc/config/xtensa/xtensa-protos.h
++++ b/gcc/config/xtensa/xtensa-protos.h
+@@ -60,7 +60,6 @@ extern bool xtensa_tls_referenced_p (rtx);
+ extern enum rtx_code xtensa_shlrd_which_direction (rtx, rtx);
+ extern bool xtensa_split1_finished_p (void);
+ extern void xtensa_split_DI_reg_imm (rtx *);
+-extern bool xtensa_match_CLAMPS_imms_p (rtx, rtx);
+ 
+ #ifdef TREE_CODE
+ extern void init_cumulative_args (CUMULATIVE_ARGS *, int);
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index 293a440a5..b36bb0d22 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -2686,16 +2686,6 @@ xtensa_emit_add_imm (rtx dst, rtx src, HOST_WIDE_INT imm, rtx scratch,
+ }
+ 
+ 
+-/* Return true if the constants used in the application of smin() following
+-   smax() meet the specifications of the CLAMPS machine instruction.  */
+-bool
+-xtensa_match_CLAMPS_imms_p (rtx cst_max, rtx cst_min)
+-{
+-  return IN_RANGE (exact_log2 (-INTVAL (cst_max)), 7, 22)
+-	 && (INTVAL (cst_max) + INTVAL (cst_min)) == -1;
+-}
+-
+-
+ /* Implement TARGET_CANNOT_FORCE_CONST_MEM.  */
+ 
+ static bool
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index 2242765a0..2c57474c1 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -176,15 +176,8 @@
+   "TARGET_ADDX"
+ {
+   operands[3] = GEN_INT (1 << INTVAL (operands[3]));
+-  switch (GET_CODE (operands[4]))
+-    {
+-    case PLUS:
+-      return "addx%3\t%0, %1, %2";
+-    case MINUS:
+-      return "subx%3\t%0, %1, %2";
+-    default:
+-      gcc_unreachable ();
+-    }
++  return GET_CODE (operands[4]) == PLUS
++	  ? "addx%3\t%0, %1, %2" : "subx%3\t%0, %1, %2";
+ }
+   [(set_attr "type"	"arith")
+    (set_attr "mode"	"SI")
+@@ -531,34 +524,23 @@
+ 
+ ;; Signed clamp.
+ 
+-(define_insn_and_split "*xtensa_clamps"
+-  [(set (match_operand:SI 0 "register_operand" "=a")
+-	(smax:SI (smin:SI (match_operand:SI 1 "register_operand" "r")
+-			  (match_operand:SI 2 "const_int_operand" "i"))
+-		 (match_operand:SI 3 "const_int_operand" "i")))]
+-  "TARGET_MINMAX && TARGET_CLAMPS
+-   && xtensa_match_CLAMPS_imms_p (operands[3], operands[2])"
+-  "#"
+-  "&& 1"
+-  [(set (match_dup 0)
+-	(smin:SI (smax:SI (match_dup 1)
+-			  (match_dup 3))
+-		 (match_dup 2)))]
+-  ""
+-  [(set_attr "type"	"arith")
+-   (set_attr "mode"	"SI")
+-   (set_attr "length"	"3")])
+-
+ (define_insn "*xtensa_clamps"
+   [(set (match_operand:SI 0 "register_operand" "=a")
+-	(smin:SI (smax:SI (match_operand:SI 1 "register_operand" "r")
+-			  (match_operand:SI 2 "const_int_operand" "i"))
+-		 (match_operand:SI 3 "const_int_operand" "i")))]
++        (match_operator:SI 5 "xtensa_sminmax_operator"
++	  [(match_operator:SI 4 "xtensa_sminmax_operator"
++	    [(match_operand:SI 1 "register_operand" "r")
++	     (match_operand:SI 2 "const_int_operand" "i")])
++	   (match_operand:SI 3 "const_int_operand" "i")]))]
+   "TARGET_MINMAX && TARGET_CLAMPS
+-   && xtensa_match_CLAMPS_imms_p (operands[2], operands[3])"
++   && INTVAL (operands[2]) + INTVAL (operands[3]) == -1
++   && ((GET_CODE (operands[5]) == SMIN && GET_CODE (operands[4]) == SMAX
++	&& IN_RANGE (exact_log2 (-INTVAL (operands[2])), 7, 22))
++       || (GET_CODE (operands[5]) == SMAX && GET_CODE (operands[4]) == SMIN
++	   && IN_RANGE (exact_log2 (-INTVAL (operands[3])), 7, 22)))"
+ {
+   static char result[64];
+-  sprintf (result, "clamps\t%%0, %%1, %d", floor_log2 (-INTVAL (operands[2])));
++  rtx bound = operands[GET_CODE (operands[4]) == SMAX ? 2 : 3];
++  sprintf (result, "clamps\t%%0, %%1, %d", floor_log2 (-INTVAL (bound)));
+   return result;
+ }
+   [(set_attr "type"	"arith")
+@@ -1100,17 +1082,7 @@
+ 		   (match_dup 3)))]
+ {
+   int pos = INTVAL (operands[2]), shift = floor_log2 (INTVAL (operands[3]));
+-  switch (GET_CODE (operands[4]))
+-    {
+-    case ASHIFT:
+-      pos = shift - pos;
+-      break;
+-    case LSHIFTRT:
+-      pos = shift + pos;
+-      break;
+-    default:
+-      gcc_unreachable ();
+-    }
++  pos = GET_CODE (operands[4]) == ASHIFT ? shift - pos : shift + pos;
+   if (BITS_BIG_ENDIAN)
+     pos = (32 - (1 + pos)) & 0x1f;
+   operands[2] = GEN_INT (pos);
+@@ -1146,17 +1118,7 @@
+ 		 (match_dup 2)]))]
+ {
+   int pos = INTVAL (operands[3]), shift = floor_log2 (INTVAL (operands[4]));
+-  switch (GET_CODE (operands[6]))
+-    {
+-    case ASHIFT:
+-      pos = shift - pos;
+-      break;
+-    case LSHIFTRT:
+-      pos = shift + pos;
+-      break;
+-    default:
+-      gcc_unreachable ();
+-    }
++  pos = GET_CODE (operands[6]) == ASHIFT ? shift - pos : shift + pos;
+   if (BITS_BIG_ENDIAN)
+     pos = (32 - (1 + pos)) & 0x1f;
+   operands[3] = GEN_INT (pos);
+@@ -2117,11 +2079,12 @@
+ (define_split
+   [(set (pc)
+ 	(if_then_else (match_operator 2 "boolean_operator"
+-			[(subreg:HQI (not:SI (match_operand:SI 0 "register_operand")) 0)
++			[(match_operator 3 "subreg_HQI_lowpart_operator"
++			   [(not:SI (match_operand:SI 0 "register_operand"))])
+ 			 (const_int 0)])
+ 		      (label_ref (match_operand 1 ""))
+ 		      (pc)))]
+-  "!BYTES_BIG_ENDIAN"
++  ""
+   [(set (pc)
+ 	(if_then_else (match_op_dup 2
+ 			[(and:SI (not:SI (match_dup 0))
+@@ -2130,41 +2093,9 @@
+ 		      (label_ref (match_dup 1))
+ 		      (pc)))]
+ {
+-  operands[3] = GEN_INT ((1 << GET_MODE_BITSIZE (<MODE>mode)) - 1);
++  operands[3] = GEN_INT ((1 << GET_MODE_BITSIZE (GET_MODE (operands[3]))) - 1);
+ })
+ 
+-(define_split
+-  [(set (pc)
+-	(if_then_else (match_operator 2 "boolean_operator"
+-			[(subreg:HI (not:SI (match_operand:SI 0 "register_operand")) 2)
+-			 (const_int 0)])
+-		      (label_ref (match_operand 1 ""))
+-		      (pc)))]
+-  "BYTES_BIG_ENDIAN"
+-  [(set (pc)
+-	(if_then_else (match_op_dup 2
+-			[(and:SI (not:SI (match_dup 0))
+-				 (const_int 65535))
+-			 (const_int 0)])
+-		      (label_ref (match_dup 1))
+-		      (pc)))])
+-
+-(define_split
+-  [(set (pc)
+-	(if_then_else (match_operator 2 "boolean_operator"
+-			[(subreg:QI (not:SI (match_operand:SI 0 "register_operand")) 3)
+-			 (const_int 0)])
+-		      (label_ref (match_operand 1 ""))
+-		      (pc)))]
+-  "BYTES_BIG_ENDIAN"
+-  [(set (pc)
+-	(if_then_else (match_op_dup 2
+-			[(and:SI (not:SI (match_dup 0))
+-				 (const_int 255))
+-			 (const_int 0)])
+-		      (label_ref (match_dup 1))
+-		      (pc)))])
+-
+ (define_insn_and_split "*masktrue_const_pow2_minus_one"
+   [(set (pc)
+ 	(if_then_else (match_operator 4 "boolean_operator"
+-- 
+2.39.5
+

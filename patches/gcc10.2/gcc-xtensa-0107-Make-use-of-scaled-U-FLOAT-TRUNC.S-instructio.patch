@@ -1,0 +1,227 @@
+From 55bf9488a559158959167f443fc8ec0e1367b6cd Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Sun, 14 Jul 2024 20:04:15 +0900
+Subject: [PATCH] xtensa: Make use of scaled [U]FLOAT/TRUNC.S
+ instructions
+
+[U]FLOAT.S machine instruction in Xtensa ISA, which converts an integer to
+a hardware single-precision FP register, has the ability to divide the
+result by power of two (0 to 15th).
+
+Similarly, [U]TRUNC.S instruction, which truncates single-precision FP to
+integer, can multiply the source value by power of two in advance, but
+neither of these currently uses this function (always specified with 0th
+power of two, i.e. a scaling factor of 1).
+
+This patch unleashes the scaling ability of the above instructions.
+
+     /* example */
+     float test0(int a) {
+       return a / 2.f;
+     }
+     float test1(unsigned int a) {
+       return a / 32768.f;
+     }
+     int test2(float a) {
+       return a * 2;
+     }
+     unsigned int test3(float a) {
+       return a * 32768;
+     }
+
+     ;; before
+     test0:
+     	movi.n	a9, 0x3f
+     	float.s	f0, a2, 0
+     	slli	a9, a9, 24
+     	wfr	f1, a9
+     	mul.s	f0, f0, f1
+     	rfr	a2, f0
+     	ret.n
+     test1:
+     	movi.n	a9, 7
+     	ufloat.s	f0, a2, 0
+     	slli	a9, a9, 27
+     	wfr	f1, a9
+     	mul.s	f0, f0, f1
+     	rfr	a2, f0
+     	ret.n
+     test2:
+     	wfr	f1, a2
+     	add.s	f0, f1, f1
+     	trunc.s	a2, f0, 0
+     	ret.n
+     test3:
+     	movi.n	a9, 0x47
+     	slli	a9, a9, 24
+     	wfr	f1, a2
+     	wfr	f2, a9
+     	mul.s	f0, f1, f2
+     	utrunc.s	a2, f0, 0
+     	ret.n
+
+     ;; after
+     test0:
+     	float.s	f0, a2, 1
+     	rfr	a2, f0
+     	ret.n
+     test1:
+     	ufloat.s	f0, a2, 15
+     	rfr	a2, f0
+     	ret.n
+     test2:
+     	wfr	f0, a2
+     	trunc.s	a2, f0, 1
+     	ret.n
+     test3:
+     	wfr	f0, a2
+     	utrunc.s	a2, f0, 15
+     	ret.n
+
+gcc/ChangeLog:
+
+	* config/xtensa/predicates.md
+	(fix_scaling_operand, float_scaling_operand): New predicates.
+	* config/xtensa/xtensa.md
+	(any_fix/m_fix/s_fix, any_float/m_float/s_float):
+	New code iterators and their attributes.
+	(fix<s_fix>_truncsfsi2): Change from "fix_truncsfsi2".
+	(*fix<s_fix>_truncsfsi2_2x, *fix<s_fix>_truncsfsi2_scaled):
+	New insn definitions.
+	(float<s_float>sisf2): Change from "floatsisf2".
+	(*float<s_float>sisf2_scaled): New insn definition.
+---
+ gcc/config/xtensa/predicates.md | 20 ++++++++++++
+ gcc/config/xtensa/xtensa.md     | 58 ++++++++++++++++++++++++++-------
+ 2 files changed, 66 insertions(+), 12 deletions(-)
+
+diff --git a/gcc/config/xtensa/predicates.md b/gcc/config/xtensa/predicates.md
+index a01a9f46e..e199d78e9 100644
+--- a/gcc/config/xtensa/predicates.md
++++ b/gcc/config/xtensa/predicates.md
+@@ -162,6 +162,26 @@
+   return real_equal (CONST_DOUBLE_REAL_VALUE (op), &dconst1);
+ })
+ 
++(define_predicate "fix_scaling_operand"
++  (match_code "const_double")
++{
++  REAL_VALUE_TYPE r = *CONST_DOUBLE_REAL_VALUE (op);
++  int exp = REAL_EXP (&r) - 1;
++
++  SET_REAL_EXP (&r, 1);
++  return real_equal (&r, &dconst1) && IN_RANGE (exp, 2, 15);
++})
++
++(define_predicate "float_scaling_operand"
++  (match_code "const_double")
++{
++  REAL_VALUE_TYPE r = *CONST_DOUBLE_REAL_VALUE (op);
++  int exp = REAL_EXP (&r) - 1;
++
++  SET_REAL_EXP (&r, 1);
++  return real_equal (&r, &dconst1) && IN_RANGE (-exp, 1, 15);
++})
++
+ (define_predicate "fpmem_offset_operand"
+   (and (match_code "const_int")
+        (match_test "xtensa_mem_offset (INTVAL (op), SFmode)")))
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index 7b6a36f6f..f32028177 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -87,6 +87,18 @@
+ ;; the same template.
+ (define_mode_iterator HQI [HI QI])
+ 
++;; This iterator and attribute allow signed/unsigned FP truncations to be
++;; generated from one template.
++(define_code_iterator any_fix [fix unsigned_fix])
++(define_code_attr m_fix [(fix "trunc") (unsigned_fix "utrunc")])
++(define_code_attr s_fix [(fix "") (unsigned_fix "uns")])
++
++;; This iterator and attribute allow signed/unsigned FP conversions to be
++;; generated from one template.
++(define_code_iterator any_float [float unsigned_float])
++(define_code_attr m_float [(float "float") (unsigned_float "ufloat")])
++(define_code_attr s_float [(float "") (unsigned_float "uns")])
++
+ 
+ ;; Attributes.
+ 
+@@ -1131,38 +1143,60 @@
+ 
+ ;; Conversions.
+ 
+-(define_insn "fix_truncsfsi2"
++(define_insn "fix<s_fix>_truncsfsi2"
++  [(set (match_operand:SI 0 "register_operand" "=a")
++	(any_fix:SI (match_operand:SF 1 "register_operand" "f")))]
++  "TARGET_HARD_FLOAT"
++  "<m_fix>.s\t%0, %1, 0"
++  [(set_attr "type"	"fconv")
++   (set_attr "mode"	"SF")
++   (set_attr "length"	"3")])
++
++(define_insn "*fix<s_fix>_truncsfsi2_2x"
+   [(set (match_operand:SI 0 "register_operand" "=a")
+-	(fix:SI (match_operand:SF 1 "register_operand" "f")))]
++	(any_fix:SI (plus:SF (match_operand:SF 1 "register_operand" "f")
++			     (match_dup 1))))]
+   "TARGET_HARD_FLOAT"
+-  "trunc.s\t%0, %1, 0"
++  "<m_fix>.s\t%0, %1, 1"
+   [(set_attr "type"	"fconv")
+    (set_attr "mode"	"SF")
+    (set_attr "length"	"3")])
+ 
+-(define_insn "fixuns_truncsfsi2"
++(define_insn "*fix<s_fix>_truncsfsi2_scaled"
+   [(set (match_operand:SI 0 "register_operand" "=a")
+-	(unsigned_fix:SI (match_operand:SF 1 "register_operand" "f")))]
++	(any_fix:SI (mult:SF (match_operand:SF 1 "register_operand" "f")
++			     (match_operand:SF 2 "fix_scaling_operand" "F"))))]
+   "TARGET_HARD_FLOAT"
+-  "utrunc.s\t%0, %1, 0"
++{
++  static char result[64];
++  sprintf (result, "<m_fix>.s\t%%0, %%1, %d",
++	   REAL_EXP (CONST_DOUBLE_REAL_VALUE (operands[2])) - 1);
++  return result;
++}
+   [(set_attr "type"	"fconv")
+    (set_attr "mode"	"SF")
+    (set_attr "length"	"3")])
+ 
+-(define_insn "floatsisf2"
++(define_insn "float<s_float>sisf2"
+   [(set (match_operand:SF 0 "register_operand" "=f")
+-	(float:SF (match_operand:SI 1 "register_operand" "a")))]
++	(any_float:SF (match_operand:SI 1 "register_operand" "a")))]
+   "TARGET_HARD_FLOAT"
+-  "float.s\t%0, %1, 0"
++  "<m_float>.s\t%0, %1, 0"
+   [(set_attr "type"	"fconv")
+    (set_attr "mode"	"SF")
+    (set_attr "length"	"3")])
+ 
+-(define_insn "floatunssisf2"
++(define_insn "*float<s_float>sisf2_scaled"
+   [(set (match_operand:SF 0 "register_operand" "=f")
+-	(unsigned_float:SF (match_operand:SI 1 "register_operand" "a")))]
++	(mult:SF (any_float:SF (match_operand:SI 1 "register_operand" "a"))
++		 (match_operand:SF 2 "float_scaling_operand" "F")))]
+   "TARGET_HARD_FLOAT"
+-  "ufloat.s\t%0, %1, 0"
++{
++  static char result[64];
++  sprintf (result, "<m_float>.s\t%%0, %%1, %d",
++	   1 - REAL_EXP (CONST_DOUBLE_REAL_VALUE (operands[2])));
++  return result;
++}
+   [(set_attr "type"	"fconv")
+    (set_attr "mode"	"SF")
+    (set_attr "length"	"3")])
+-- 
+2.39.5
+

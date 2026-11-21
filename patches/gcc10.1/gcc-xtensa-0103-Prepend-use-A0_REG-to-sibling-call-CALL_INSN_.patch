@@ -1,0 +1,164 @@
+From 40b83d58113363f0ad84a32212738bd33651a233 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Fri, 31 May 2024 19:24:48 +0900
+Subject: [PATCH] xtensa: Prepend "(use A0_REG)" to sibling call
+ CALL_INSN_FUNCTION_USAGE instead of emitting it as insn at the end of
+ epilogue
+
+No functional changes.
+
+gcc/ChangeLog:
+
+	* config/xtensa/xtensa-protos.h (xtensa_expand_call):
+	Add the third argument as boolean.
+	(xtensa_expand_epilogue): Remove the first argument.
+	* config/xtensa/xtensa.c (xtensa_expand_call):
+	Add the third argument "sibcall_p", and modify in order to prepend
+	"(use A0_REG)" to CALL_INSN_FUNCTION_USAGE if the argument is true.
+	(xtensa_expand_epilogue): Remove the first argument "sibcall_p" and
+	its conditional clause.
+	* config/xtensa/xtensa.md (call, call_value, sibcall, sibcall_value):
+	Append a boolean value to the argument of xtensa_expand_call()
+	indicating whether it is sibling call or not.
+	(epilogue): Remove the boolean argument from xtensa_expand_epilogue(),
+	and then append emitting "(return)".
+	(sibcall_epilogue): Remove the boolean argument from
+	xtensa_expand_epilogue().
+---
+ gcc/config/xtensa/xtensa-protos.h |  4 ++--
+ gcc/config/xtensa/xtensa.c        | 16 ++++++++++------
+ gcc/config/xtensa/xtensa.md       | 13 +++++++------
+ 3 files changed, 19 insertions(+), 14 deletions(-)
+
+diff --git a/gcc/config/xtensa/xtensa-protos.h b/gcc/config/xtensa/xtensa-protos.h
+index e1f12d088..4cf47726b 100644
+--- a/gcc/config/xtensa/xtensa-protos.h
++++ b/gcc/config/xtensa/xtensa-protos.h
+@@ -53,7 +53,7 @@ extern void xtensa_expand_atomic (enum rtx_code, rtx, rtx, rtx, bool);
+ extern void xtensa_emit_loop_end (rtx_insn *, rtx *);
+ extern char *xtensa_emit_branch (bool, rtx *);
+ extern char *xtensa_emit_movcc (bool, bool, bool, rtx *);
+-extern void xtensa_expand_call (int, rtx *);
++extern void xtensa_expand_call (int, rtx *, bool);
+ extern char *xtensa_emit_call (int, rtx *);
+ extern char *xtensa_emit_sibcall (int, rtx *);
+ extern bool xtensa_tls_referenced_p (rtx);
+@@ -76,7 +76,7 @@ extern void xtensa_setup_frame_addresses (void);
+ extern int xtensa_dbx_register_number (int);
+ extern long compute_frame_size (poly_int64);
+ extern void xtensa_expand_prologue (void);
+-extern void xtensa_expand_epilogue (bool);
++extern void xtensa_expand_epilogue (void);
+ extern void xtensa_adjust_reg_alloc_order (void);
+ extern enum reg_class xtensa_regno_to_class (int regno);
+ extern HOST_WIDE_INT xtensa_initial_elimination_offset (int from, int to);
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index b36bb0d22..416217862 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -2258,7 +2258,7 @@ xtensa_emit_movcc (bool inverted, bool isfp, bool isbool, rtx *operands)
+ 
+ 
+ void
+-xtensa_expand_call (int callop, rtx *operands)
++xtensa_expand_call (int callop, rtx *operands, bool sibcall_p)
+ {
+   rtx call;
+   rtx_insn *call_insn;
+@@ -2300,6 +2300,14 @@ xtensa_expand_call (int callop, rtx *operands)
+       CALL_INSN_FUNCTION_USAGE (call_insn) =
+ 	gen_rtx_EXPR_LIST (Pmode, clob, CALL_INSN_FUNCTION_USAGE (call_insn));
+     }
++  else if (sibcall_p)
++    {
++      /* Sibling call requires a return address to the caller, similar to
++	 "return" insn.  */
++      rtx use = gen_rtx_USE (VOIDmode, gen_rtx_REG (SImode, A0_REG));
++      CALL_INSN_FUNCTION_USAGE (call_insn) =
++	gen_rtx_EXPR_LIST (Pmode, use, CALL_INSN_FUNCTION_USAGE (call_insn));
++    }
+ }
+ 
+ 
+@@ -3731,7 +3739,7 @@ xtensa_expand_prologue (void)
+ }
+ 
+ void
+-xtensa_expand_epilogue (bool sibcall_p)
++xtensa_expand_epilogue (void)
+ {
+   if (!TARGET_WINDOWED_ABI)
+     {
+@@ -3796,10 +3804,6 @@ xtensa_expand_epilogue (bool sibcall_p)
+ 				  stack_pointer_rtx,
+ 				  EH_RETURN_STACKADJ_RTX));
+     }
+-  if (sibcall_p)
+-    emit_use (gen_rtx_REG (SImode, A0_REG));
+-  else
+-    emit_jump_insn (gen_return ());
+ }
+ 
+ void
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index 2c57474c1..0e6a13814 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -2553,7 +2553,7 @@
+ 	 (match_operand 1 "" ""))]
+   ""
+ {
+-  xtensa_expand_call (0, operands);
++  xtensa_expand_call (0, operands, false);
+   DONE;
+ })
+ 
+@@ -2574,7 +2574,7 @@
+ 	      (match_operand 2 "" "")))]
+   ""
+ {
+-  xtensa_expand_call (1, operands);
++  xtensa_expand_call (1, operands, false);
+   DONE;
+ })
+ 
+@@ -2595,7 +2595,7 @@
+ 	 (match_operand 1 "" ""))]
+   "!TARGET_WINDOWED_ABI"
+ {
+-  xtensa_expand_call (0, operands);
++  xtensa_expand_call (0, operands, true);
+   DONE;
+ })
+ 
+@@ -2616,7 +2616,7 @@
+ 	      (match_operand 2 "" "")))]
+   "!TARGET_WINDOWED_ABI"
+ {
+-  xtensa_expand_call (1, operands);
++  xtensa_expand_call (1, operands, true);
+   DONE;
+ })
+ 
+@@ -2723,7 +2723,8 @@
+   [(return)]
+   ""
+ {
+-  xtensa_expand_epilogue (false);
++  xtensa_expand_epilogue ();
++  emit_jump_insn (gen_return ());
+   DONE;
+ })
+ 
+@@ -2731,7 +2732,7 @@
+   [(return)]
+   "!TARGET_WINDOWED_ABI"
+ {
+-  xtensa_expand_epilogue (true);
++  xtensa_expand_epilogue ();
+   DONE;
+ })
+ 
+-- 
+2.39.5
+

@@ -1,0 +1,30 @@
+From 2f809e6054945c82ed30c11d605080897f88a6e6 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Tue, 18 Apr 2023 14:11:09 -0600
+Subject: [PATCH 01/19] ifcvt.c: Prevent excessive if-conversion for
+ conditional moves
+
+gcc/
+	* ifcvt.c (cond_move_process_if_block): Consider the result of
+	targetm.noce_conversion_profitable_p() when replacing the original
+	sequence with the converted one.
+---
+ gcc/ifcvt.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/gcc/ifcvt.c b/gcc/ifcvt.c
+index 977dd1bd4..c1aab7dd2 100644
+--- a/gcc/ifcvt.c
++++ b/gcc/ifcvt.c
+@@ -3963,7 +3963,7 @@ cond_move_process_if_block (struct noce_if_info *if_info)
+       goto done;
+     }
+   seq = end_ifcvt_sequence (if_info);
+-  if (!seq)
++  if (!seq || !targetm.noce_conversion_profitable_p (seq, if_info))
+     goto done;
+ 
+   loc_insn = first_active_insn (then_bb);
+-- 
+2.30.2
+

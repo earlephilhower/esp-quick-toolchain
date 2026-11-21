@@ -1,0 +1,155 @@
+From 971853ee1fd196856d157e58caff67d9ad144a6a Mon Sep 17 00:00:00 2001
+From: Roger Sayle <roger@nextmovesoftware.com>
+Date: Fri, 28 Apr 2023 14:21:53 +0100
+Subject: [PATCH] PR rtl-optimization/109476: Use ZERO_EXTEND instead of
+ zeroing a SUBREG.
+
+This patch fixes PR rtl-optimization/109476, which is a code quality
+regression affecting AVR.  The cause is that the lower-subreg pass is
+sometimes overly aggressive, lowering the LSHIFTRT below:
+
+(insn 7 4 8 2 (set (reg:HI 51)
+        (lshiftrt:HI (reg/v:HI 49 [ b ])
+            (const_int 8 [0x8]))) "t.ii":4:36 557 {lshrhi3}
+     (nil))
+
+into a pair of QImode SUBREG assignments:
+
+(insn 19 4 20 2 (set (subreg:QI (reg:HI 51) 0)
+        (reg:QI 54 [ b+1 ])) "t.ii":4:36 86 {movqi_insn_split}
+     (nil))
+(insn 20 19 8 2 (set (subreg:QI (reg:HI 51) 1)
+        (const_int 0 [0])) "t.ii":4:36 86 {movqi_insn_split}
+     (nil))
+
+but this idiom, SETs of SUBREGs, interferes with combine's ability
+to associate/fuse instructions.  The solution, on targets that
+have a suitable ZERO_EXTEND (i.e. where the lower-subreg pass
+wouldn't itself split a ZERO_EXTEND, so "splitting_zext" is false),
+is to split/lower LSHIFTRT to a ZERO_EXTEND.
+
+To answer Richard's question in comment #10 of the bugzilla PR,
+the function resolve_shift_zext is called with one of four RTX
+codes, ASHIFTRT, LSHIFTRT, ZERO_EXTEND and ASHIFT, but only with
+LSHIFTRT can the setting of low_part and high_part SUBREGs be
+replaced by a ZERO_EXTEND.  For ASHIFTRT, we require a sign
+extension, so don't set the high_part to zero; if we're splitting
+a ZERO_EXTEND then it doesn't make sense to replace it with a
+ZERO_EXTEND, and for ASHIFT we've played games to swap the
+high_part and low_part SUBREGs, so that we assign the low_part
+to zero (for double word shifts by greater than word size bits).
+
+2023-04-28  Roger Sayle  <roger@nextmovesoftware.com>
+
+gcc/ChangeLog
+	PR rtl-optimization/109476
+	* lower-subreg.c: Include explow.h for force_reg.
+	(find_decomposable_shift_zext): Pass an additional SPEED_P argument.
+	If decomposing a suitable LSHIFTRT and we're not splitting
+	ZERO_EXTEND (based on the current SPEED_P), then use a ZERO_EXTEND
+	instead of setting a high part SUBREG to zero, which helps combine.
+	(decompose_multiword_subregs): Update call to resolve_shift_zext.
+
+gcc/testsuite/ChangeLog
+	PR rtl-optimization/109476
+	* gcc.target/avr/mmcu/pr109476.c: New test case.
+---
+ gcc/lower-subreg.c                           | 39 ++++++++++++++------
+ gcc/testsuite/gcc.target/avr/mmcu/pr109476.c | 11 ++++++
+ 2 files changed, 39 insertions(+), 11 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/avr/mmcu/pr109476.c
+
+diff --git a/gcc/lower-subreg.c b/gcc/lower-subreg.c
+index a11e535b5..3506204a9 100644
+--- a/gcc/lower-subreg.c
++++ b/gcc/lower-subreg.c
+@@ -37,6 +37,7 @@ along with GCC; see the file COPYING3.  If not see
+ #include "cfgbuild.h"
+ #include "dce.h"
+ #include "expr.h"
++#include "explow.h"
+ #include "tree-pass.h"
+ #include "lower-subreg.h"
+ #include "rtl-iter.h"
+@@ -1288,11 +1289,12 @@ find_decomposable_shift_zext (rtx_insn *insn, bool speed_p)
+ 
+ /* Decompose a more than word wide shift (in INSN) of a multiword
+    pseudo or a multiword zero-extend of a wordmode pseudo into a move
+-   and 'set to zero' insn.  Return a pointer to the new insn when a
+-   replacement was done.  */
++   and 'set to zero' insn.  SPEED_P says whether we are optimizing
++   for speed or size, when checking if a ZERO_EXTEND is preferable.
++   Return a pointer to the new insn when a replacement was done.  */
+ 
+ static rtx_insn *
+-resolve_shift_zext (rtx_insn *insn)
++resolve_shift_zext (rtx_insn *insn, bool speed_p)
+ {
+   rtx set;
+   rtx op;
+@@ -1367,14 +1369,29 @@ resolve_shift_zext (rtx_insn *insn)
+ 				dest_reg, GET_CODE (op) != ASHIFTRT);
+     }
+ 
+-  if (dest_reg != src_reg)
+-    emit_move_insn (dest_reg, src_reg);
+-  if (GET_CODE (op) != ASHIFTRT)
+-    emit_move_insn (dest_upper, CONST0_RTX (word_mode));
+-  else if (INTVAL (XEXP (op, 1)) == 2 * BITS_PER_WORD - 1)
+-    emit_move_insn (dest_upper, copy_rtx (src_reg));
++  /* Consider using ZERO_EXTEND instead of setting DEST_UPPER to zero
++     if this is considered reasonable.  */
++  if (GET_CODE (op) == LSHIFTRT
++      && GET_MODE (op) == twice_word_mode
++      && REG_P (SET_DEST (set))
++      && !choices[speed_p].splitting_zext)
++    {
++      rtx tmp = force_reg (word_mode, copy_rtx (src_reg));
++      tmp = simplify_gen_unary (ZERO_EXTEND, twice_word_mode, tmp, word_mode);
++      emit_move_insn (SET_DEST (set), tmp);
++    }
+   else
+-    emit_move_insn (dest_upper, upper_src);
++    {
++      if (dest_reg != src_reg)
++	emit_move_insn (dest_reg, src_reg);
++      if (GET_CODE (op) != ASHIFTRT)
++	emit_move_insn (dest_upper, CONST0_RTX (word_mode));
++      else if (INTVAL (XEXP (op, 1)) == 2 * BITS_PER_WORD - 1)
++	emit_move_insn (dest_upper, copy_rtx (src_reg));
++      else
++	emit_move_insn (dest_upper, upper_src);
++    }
++
+   insns = get_insns ();
+ 
+   end_sequence ();
+@@ -1659,7 +1676,7 @@ decompose_multiword_subregs (bool decompose_copies)
+ 		    {
+ 		      rtx_insn *decomposed_shift;
+ 
+-		      decomposed_shift = resolve_shift_zext (insn);
++		      decomposed_shift = resolve_shift_zext (insn, speed_p);
+ 		      if (decomposed_shift != NULL_RTX)
+ 			{
+ 			  insn = decomposed_shift;
+diff --git a/gcc/testsuite/gcc.target/avr/mmcu/pr109476.c b/gcc/testsuite/gcc.target/avr/mmcu/pr109476.c
+new file mode 100644
+index 000000000..6e2269a82
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/avr/mmcu/pr109476.c
+@@ -0,0 +1,11 @@
++/* { dg-do compile } */
++/* { dg-options "-Os -mmcu=avrxmega3" } */
++
++unsigned short foo(unsigned char a, unsigned short b) {
++    return (unsigned char)((b >> 8) + 0) * a ;
++}
++
++/* { dg-final { scan-assembler-times "mul" 1 } } */
++/* { dg-final { scan-assembler-times "mov" 1 } } */
++/* { dg-final { scan-assembler-not "add" } } */
++/* { dg-final { scan-assembler-not "ldi" } } */
+-- 
+2.39.5
+

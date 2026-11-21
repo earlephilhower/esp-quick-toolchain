@@ -1,0 +1,417 @@
+From 1a8bafd88f43bc26ed8748d721d2fb00247c083e Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Thu, 30 May 2024 22:32:24 +0900
+Subject: [PATCH] xtensa: Use REG_P(), MEM_P(), etc. instead of comparing
+ GET_CODE()
+
+Instead of comparing directly, this patch replaces as much as possible with
+macros that determine RTX code such as REG_P(), SUBREG_P() or MEM_P(), etc.
+
+gcc/ChangeLog:
+
+	* config/xtensa/xtensa.c (xtensa_valid_move, constantpool_address_p,
+	xtensa_tls_symbol_p, gen_int_relational, xtensa_emit_move_sequence,
+	xtensa_copy_incoming_a7, xtensa_expand_block_move,
+	xtensa_expand_nonlocal_goto, xtensa_emit_call,
+	xtensa_legitimate_address_p, xtensa_legitimize_address,
+	xtensa_tls_referenced_p, print_operand, print_operand_address,
+	xtensa_output_literal):
+	Replace RTX code comparisons with their predicate macros such as
+	REG_P().
+	* config/xtensa/xtensa.h (CONSTANT_ADDRESS_P,
+	LEGITIMATE_PIC_OPERAND_P): Ditto.
+	* config/xtensa/xtensa.md (reload<mode>_literal, indirect_jump):
+	Ditto.
+---
+ gcc/config/xtensa/xtensa.c  | 90 ++++++++++++++++++-------------------
+ gcc/config/xtensa/xtensa.h  | 10 ++---
+ gcc/config/xtensa/xtensa.md |  4 +-
+ 3 files changed, 51 insertions(+), 53 deletions(-)
+
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index 8af2c66c7..52e059d5b 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -545,18 +545,18 @@ xtensa_valid_move (machine_mode mode, rtx *operands)
+ int
+ smalloffset_mem_p (rtx op)
+ {
+-  if (GET_CODE (op) == MEM)
++  if (MEM_P (op))
+     {
+       rtx addr = XEXP (op, 0);
+-      if (GET_CODE (addr) == REG)
++      if (REG_P (addr))
+ 	return BASE_REG_P (addr, 0);
+       if (GET_CODE (addr) == PLUS)
+ 	{
+ 	  rtx offset = XEXP (addr, 0);
+ 	  HOST_WIDE_INT val;
+-	  if (GET_CODE (offset) != CONST_INT)
++	  if (! CONST_INT_P (offset))
+ 	    offset = XEXP (addr, 1);
+-	  if (GET_CODE (offset) != CONST_INT)
++	  if (! CONST_INT_P (offset))
+ 	    return FALSE;
+ 
+ 	  val = INTVAL (offset);
+@@ -590,7 +590,7 @@ constantpool_address_p (const_rtx addr)
+       sym = XEXP (addr, 0);
+     }
+ 
+-  if ((GET_CODE (sym) == SYMBOL_REF)
++  if (SYMBOL_REF_P (sym)
+       && CONSTANT_POOL_ADDRESS_P (sym))
+     return true;
+   return false;
+@@ -600,9 +600,9 @@ constantpool_address_p (const_rtx addr)
+ int
+ constantpool_mem_p (rtx op)
+ {
+-  if (GET_CODE (op) == SUBREG)
++  if (SUBREG_P (op))
+     op = SUBREG_REG (op);
+-  if (GET_CODE (op) == MEM)
++  if (MEM_P (op))
+     return constantpool_address_p (XEXP (op, 0));
+   return FALSE;
+ }
+@@ -616,7 +616,7 @@ xtensa_tls_symbol_p (rtx x)
+   if (! TARGET_HAVE_TLS)
+     return false;
+ 
+-  return GET_CODE (x) == SYMBOL_REF && SYMBOL_REF_TLS_MODEL (x) != 0;
++  return SYMBOL_REF_P (x) && SYMBOL_REF_TLS_MODEL (x) != 0;
+ }
+ 
+ 
+@@ -743,7 +743,7 @@ gen_int_relational (enum rtx_code test_code, /* relational test (EQ, etc) */
+     mode = GET_MODE (cmp1);
+ 
+   /* Make sure we can handle any constants given to us.  */
+-  if (GET_CODE (cmp1) == CONST_INT)
++  if (CONST_INT_P (cmp1))
+     {
+       HOST_WIDE_INT value = INTVAL (cmp1);
+       unsigned HOST_WIDE_INT uvalue = (unsigned HOST_WIDE_INT)value;
+@@ -762,7 +762,7 @@ gen_int_relational (enum rtx_code test_code, /* relational test (EQ, etc) */
+ 	  cmp1 = force_reg (mode, cmp1);
+ 	}
+     }
+-  else if ((GET_CODE (cmp1) != REG) && (GET_CODE (cmp1) != SUBREG))
++  else if (! REG_P (cmp1) && ! SUBREG_P (cmp1))
+     {
+       cmp1 = force_reg (mode, cmp1);
+     }
+@@ -774,7 +774,7 @@ gen_int_relational (enum rtx_code test_code, /* relational test (EQ, etc) */
+ 
+   /* Comparison to constants, may involve adding 1 to change a LT into LE.
+      Comparison between two registers, may involve switching operands.  */
+-  if (GET_CODE (cmp1) == CONST_INT)
++  if (CONST_INT_P (cmp1))
+     {
+       if (p_info->const_add != 0)
+ 	cmp1 = GEN_INT (INTVAL (cmp1) + p_info->const_add);
+@@ -1265,7 +1265,7 @@ xtensa_emit_move_sequence (rtx *operands, machine_mode mode)
+   rtx src = operands[1];
+ 
+   if (CONSTANT_P (src)
+-      && (GET_CODE (src) != CONST_INT || ! xtensa_simm12b (INTVAL (src))))
++      && (! CONST_INT_P (src) || ! xtensa_simm12b (INTVAL (src))))
+     {
+       rtx dst = operands[0];
+ 
+@@ -1387,12 +1387,12 @@ xtensa_copy_incoming_a7 (rtx opnd)
+   /* The operand using a7 may come in a later instruction, so just return
+      the original operand if it doesn't use a7.  */
+   reg = opnd;
+-  if (GET_CODE (reg) == SUBREG)
++  if (SUBREG_P (reg))
+     {
+       gcc_assert (SUBREG_BYTE (reg) == 0);
+       reg = SUBREG_REG (reg);
+     }
+-  if (GET_CODE (reg) != REG
++  if (! REG_P (reg)
+       || REGNO (reg) > A7_REG
+       || REGNO (reg) + hard_regno_nregs (A7_REG, mode) <= A7_REG)
+     return opnd;
+@@ -1502,7 +1502,7 @@ xtensa_expand_block_move (rtx *operands)
+   rtx x;
+ 
+   /* If this is not a fixed size move, just call memcpy.  */
+-  if (!optimize || (GET_CODE (operands[2]) != CONST_INT))
++  if (!optimize || ! CONST_INT_P (operands[2]))
+     return 0;
+ 
+   bytes = INTVAL (operands[2]);
+@@ -1848,7 +1848,7 @@ xtensa_expand_nonlocal_goto (rtx *operands)
+   /* Generate a call to "__xtensa_nonlocal_goto" (in libgcc); the code
+      is too big to generate in-line.  */
+ 
+-  if (GET_CODE (containing_fp) != REG)
++  if (! REG_P (containing_fp))
+     containing_fp = force_reg (Pmode, containing_fp);
+ 
+   emit_library_call (gen_rtx_SYMBOL_REF (Pmode, "__xtensa_nonlocal_goto"),
+@@ -2310,7 +2310,7 @@ xtensa_emit_call (int callop, rtx *operands)
+   static char result[64];
+   rtx tgt = operands[callop];
+ 
+-  if (GET_CODE (tgt) == CONST_INT)
++  if (CONST_INT_P (tgt))
+     sprintf (result, "call%d\t" HOST_WIDE_INT_PRINT_HEX,
+ 	     WINDOW_SIZE, INTVAL (tgt));
+   else if (register_operand (tgt, VOIDmode))
+@@ -2349,11 +2349,11 @@ xtensa_legitimate_address_p (machine_mode mode, rtx addr, bool strict)
+       && ! xtensa_tls_referenced_p (addr))
+     return true;
+ 
+-  while (GET_CODE (addr) == SUBREG)
++  while (SUBREG_P (addr))
+     addr = SUBREG_REG (addr);
+ 
+   /* Allow base registers.  */
+-  if (GET_CODE (addr) == REG && BASE_REG_P (addr, strict))
++  if (REG_P (addr) && BASE_REG_P (addr, strict))
+     return true;
+ 
+   /* Check for "register + offset" addressing.  */
+@@ -2365,11 +2365,11 @@ xtensa_legitimate_address_p (machine_mode mode, rtx addr, bool strict)
+       enum rtx_code code0;
+       enum rtx_code code1;
+ 
+-      while (GET_CODE (xplus0) == SUBREG)
++      while (SUBREG_P (xplus0))
+ 	xplus0 = SUBREG_REG (xplus0);
+       code0 = GET_CODE (xplus0);
+ 
+-      while (GET_CODE (xplus1) == SUBREG)
++      while (SUBREG_P (xplus1))
+ 	xplus1 = SUBREG_REG (xplus1);
+       code1 = GET_CODE (xplus1);
+ 
+@@ -2488,15 +2488,14 @@ xtensa_legitimize_address (rtx x,
+       rtx plus0 = XEXP (x, 0);
+       rtx plus1 = XEXP (x, 1);
+ 
+-      if (GET_CODE (plus0) != REG && GET_CODE (plus1) == REG)
++      if (! REG_P (plus0) && REG_P (plus1))
+ 	{
+ 	  plus0 = XEXP (x, 1);
+ 	  plus1 = XEXP (x, 0);
+ 	}
+ 
+       /* Try to split up the offset to use an ADDMI instruction.  */
+-      if (GET_CODE (plus0) == REG
+-	  && GET_CODE (plus1) == CONST_INT
++      if (REG_P (plus0) && CONST_INT_P (plus1)
+ 	  && !xtensa_mem_offset (INTVAL (plus1), mode)
+ 	  && !xtensa_simm8 (INTVAL (plus1))
+ 	  && xtensa_mem_offset (INTVAL (plus1) & 0xff, mode)
+@@ -2542,7 +2541,7 @@ xtensa_tls_referenced_p (rtx x)
+   FOR_EACH_SUBRTX (iter, array, x, ALL)
+     {
+       const_rtx x = *iter;
+-      if (GET_CODE (x) == SYMBOL_REF && SYMBOL_REF_TLS_MODEL (x) != 0)
++      if (SYMBOL_REF_P (x) && SYMBOL_REF_TLS_MODEL (x) != 0)
+ 	return true;
+ 
+       /* Ignore TLS references that have already been legitimized.  */
+@@ -3028,14 +3027,14 @@ print_operand (FILE *file, rtx x, int letter)
+       break;
+ 
+     case 'D':
+-      if (GET_CODE (x) == REG || GET_CODE (x) == SUBREG)
++      if (REG_P (x) || SUBREG_P (x))
+ 	fprintf (file, "%s", reg_names[xt_true_regnum (x) + 1]);
+       else
+ 	output_operand_lossage ("invalid %%D value");
+       break;
+ 
+     case 'v':
+-      if (GET_CODE (x) == MEM)
++      if (MEM_P (x))
+ 	{
+ 	  /* For a volatile memory reference, emit a MEMW before the
+ 	     load or store.  */
+@@ -3047,7 +3046,7 @@ print_operand (FILE *file, rtx x, int letter)
+       break;
+ 
+     case 'N':
+-      if (GET_CODE (x) == MEM
++      if (MEM_P (x)
+ 	  && (GET_MODE (x) == DFmode || GET_MODE (x) == DImode))
+ 	{
+ 	  x = adjust_address (x, GET_MODE (x) == DFmode ? E_SFmode : E_SImode,
+@@ -3059,7 +3058,7 @@ print_operand (FILE *file, rtx x, int letter)
+       break;
+ 
+     case 'K':
+-      if (GET_CODE (x) == CONST_INT)
++      if (CONST_INT_P (x))
+ 	{
+ 	  unsigned val = INTVAL (x);
+ 	  if (!xtensa_mask_immediate (val))
+@@ -3072,28 +3071,28 @@ print_operand (FILE *file, rtx x, int letter)
+       break;
+ 
+     case 'L':
+-      if (GET_CODE (x) == CONST_INT)
++      if (CONST_INT_P (x))
+ 	fprintf (file, HOST_WIDE_INT_PRINT_DEC, (32 - INTVAL (x)) & 0x1f);
+       else
+ 	output_operand_lossage ("invalid %%L value");
+       break;
+ 
+     case 'R':
+-      if (GET_CODE (x) == CONST_INT)
++      if (CONST_INT_P (x))
+ 	fprintf (file, HOST_WIDE_INT_PRINT_DEC, INTVAL (x) & 0x1f);
+       else
+ 	output_operand_lossage ("invalid %%R value");
+       break;
+ 
+     case 'x':
+-      if (GET_CODE (x) == CONST_INT)
++      if (CONST_INT_P (x))
+ 	printx (file, INTVAL (x));
+       else
+ 	output_operand_lossage ("invalid %%x value");
+       break;
+ 
+     case 'd':
+-      if (GET_CODE (x) == CONST_INT)
++      if (CONST_INT_P (x))
+ 	fprintf (file, HOST_WIDE_INT_PRINT_DEC, INTVAL (x));
+       else
+ 	output_operand_lossage ("invalid %%d value");
+@@ -3101,12 +3100,12 @@ print_operand (FILE *file, rtx x, int letter)
+ 
+     case 't':
+     case 'b':
+-      if (GET_CODE (x) == CONST_INT)
++      if (CONST_INT_P (x))
+ 	{
+ 	  printx (file, INTVAL (x));
+ 	  fputs (letter == 't' ? "@h" : "@l", file);
+ 	}
+-      else if (GET_CODE (x) == CONST_DOUBLE)
++      else if (CONST_DOUBLE_P (x))
+ 	{
+ 	  if (GET_MODE (x) == SFmode)
+ 	    {
+@@ -3122,9 +3121,9 @@ print_operand (FILE *file, rtx x, int letter)
+ 	  /* X must be a symbolic constant on ELF.  Write an expression
+ 	     suitable for 'const16' that sets the high or low 16 bits.  */
+ 	  if (GET_CODE (XEXP (x, 0)) != PLUS
+-	      || (GET_CODE (XEXP (XEXP (x, 0), 0)) != SYMBOL_REF
+-		  && GET_CODE (XEXP (XEXP (x, 0), 0)) != LABEL_REF)
+-	      || GET_CODE (XEXP (XEXP (x, 0), 1)) != CONST_INT)
++	      || (! SYMBOL_REF_P (XEXP (XEXP (x, 0), 0))
++		  && ! LABEL_REF_P (XEXP (XEXP (x, 0), 0)))
++	      || ! CONST_INT_P (XEXP (XEXP (x, 0), 1)))
+ 	    output_operand_lossage ("invalid %%t/%%b value");
+ 	  print_operand (file, XEXP (XEXP (x, 0), 0), 0);
+ 	  fputs (letter == 't' ? "@h" : "@l", file);
+@@ -3142,8 +3141,7 @@ print_operand (FILE *file, rtx x, int letter)
+       break;
+ 
+     case 'y':
+-      if (GET_CODE (x) == CONST_DOUBLE &&
+-	  GET_MODE (x) == SFmode)
++      if (CONST_DOUBLE_P (x) && GET_MODE (x) == SFmode)
+ 	{
+ 	  long l;
+ 	  REAL_VALUE_TO_TARGET_SINGLE (*CONST_DOUBLE_REAL_VALUE (x), l);
+@@ -3154,11 +3152,11 @@ print_operand (FILE *file, rtx x, int letter)
+       /* fall through */
+ 
+     default:
+-      if (GET_CODE (x) == REG || GET_CODE (x) == SUBREG)
++      if (REG_P (x) || SUBREG_P (x))
+ 	fprintf (file, "%s", reg_names[xt_true_regnum (x)]);
+-      else if (GET_CODE (x) == MEM)
++      else if (MEM_P (x))
+ 	output_address (GET_MODE (x), XEXP (x, 0));
+-      else if (GET_CODE (x) == CONST_INT)
++      else if (CONST_INT_P (x))
+ 	fprintf (file, HOST_WIDE_INT_PRINT_DEC, INTVAL (x));
+       else
+ 	output_addr_const (file, x);
+@@ -3185,12 +3183,12 @@ output_address_base (FILE *file, rtx addr)
+ 	rtx arg0 = XEXP (addr, 0);
+ 	rtx arg1 = XEXP (addr, 1);
+ 
+-	if (GET_CODE (arg0) == REG)
++	if (REG_P (arg0))
+ 	  {
+ 	    reg = arg0;
+ 	    offset = arg1;
+ 	  }
+-	else if (GET_CODE (arg1) == REG)
++	else if (REG_P (arg1))
+ 	  {
+ 	    reg = arg1;
+ 	    offset = arg0;
+@@ -3330,7 +3328,7 @@ xtensa_output_literal (FILE *file, rtx x, machine_mode mode, int labelno)
+   switch (GET_MODE_CLASS (mode))
+     {
+     case MODE_FLOAT:
+-      gcc_assert (GET_CODE (x) == CONST_DOUBLE);
++      gcc_assert (CONST_DOUBLE_P (x));
+ 
+       switch (mode)
+ 	{
+diff --git a/gcc/config/xtensa/xtensa.h b/gcc/config/xtensa/xtensa.h
+index 3edf3bfa4..6edab9844 100644
+--- a/gcc/config/xtensa/xtensa.h
++++ b/gcc/config/xtensa/xtensa.h
+@@ -603,17 +603,17 @@ typedef struct xtensa_args
+    valid address.  This is defined to be the same as 'CONSTANT_P (X)',
+    but rejecting CONST_DOUBLE.  */
+ #define CONSTANT_ADDRESS_P(X)						\
+-  ((GET_CODE (X) == LABEL_REF || GET_CODE (X) == SYMBOL_REF		\
+-    || GET_CODE (X) == CONST_INT || GET_CODE (X) == HIGH		\
++  ((LABEL_REF_P (X) || SYMBOL_REF_P (X) || CONST_INT_P (X)		\
++    || (GET_CODE (X) == HIGH)						\
+     || (GET_CODE (X) == CONST)))
+ 
+ /* A C expression that is nonzero if X is a legitimate immediate
+    operand on the target machine when generating position independent
+    code.  */
+ #define LEGITIMATE_PIC_OPERAND_P(X)					\
+-  ((GET_CODE (X) != SYMBOL_REF						\
+-    || (SYMBOL_REF_LOCAL_P (X) && !SYMBOL_REF_EXTERNAL_P (X)))		\
+-   && GET_CODE (X) != LABEL_REF						\
++  ((! SYMBOL_REF_P (X)							\
++    || (SYMBOL_REF_LOCAL_P (X) && ! SYMBOL_REF_EXTERNAL_P (X)))		\
++   && ! LABEL_REF_P (X)							\
+    && GET_CODE (X) != CONST)
+ 
+ /* Specify the machine mode that this machine uses
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index 4ceff8ab3..6e2053def 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -1411,7 +1411,7 @@
+     }
+   else
+     {
+-      gcc_assert (GET_CODE (operands[1]) == SUBREG);
++      gcc_assert (SUBREG_P (operands[1]));
+       lit = SUBREG_REG (operands[1]);
+       word_off = SUBREG_BYTE (operands[1]) & ~(UNITS_PER_WORD - 1);
+       byte_off = SUBREG_BYTE (operands[1]) - word_off;
+@@ -2565,7 +2565,7 @@
+   ""
+ {
+   rtx dest = operands[0];
+-  if (GET_CODE (dest) != REG || GET_MODE (dest) != Pmode)
++  if (! REG_P (dest) || GET_MODE (dest) != Pmode)
+     operands[0] = copy_to_mode_reg (Pmode, dest);
+ 
+   emit_jump_insn (gen_indirect_jump_internal (dest));
+-- 
+2.39.5
+

@@ -1,0 +1,80 @@
+From 29c45325d390565b5838aec3d9cf8a507b4ae5a1 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Tue, 4 Jul 2023 09:57:03 +0900
+Subject: [PATCH] xtensa: Use HARD_REG_SET instead of bare integer
+
+gcc/ChangeLog:
+
+	* config/xtensa/xtensa.c (machine_function, xtensa_expand_prologue):
+	Change to use HARD_REG_BIT and its macros.
+	* config/xtensa/xtensa.md
+	(peephole2: regmove elimination during DFmode input reload):
+	Likewise.
+---
+ gcc/config/xtensa/xtensa.c  |  9 +++++----
+ gcc/config/xtensa/xtensa.md | 13 ++++++-------
+ 2 files changed, 11 insertions(+), 11 deletions(-)
+
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index 31b3f376e..dcf685ff6 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -107,7 +107,7 @@ struct GTY(()) machine_function
+   bool epilogue_done;
+   bool inhibit_logues_a1_adjusts;
+   rtx last_logues_a9_content;
+-  HOST_WIDE_INT eliminated_callee_saved_bmp;
++  HARD_REG_SET eliminated_callee_saved;
+ };
+ 
+ static void xtensa_option_override (void);
+@@ -3617,7 +3617,8 @@ xtensa_expand_prologue (void)
+ 		df_insn_rescan (insnS);
+ 		SET_SRC (PATTERN (insnR)) = copy_rtx (mem);
+ 		df_insn_rescan (insnR);
+-		cfun->machine->eliminated_callee_saved_bmp |= 1 << regno;
++		SET_HARD_REG_BIT (cfun->machine->eliminated_callee_saved,
++				  regno);
+ 	      }
+ 	    else
+ 	      {
+@@ -3721,8 +3722,8 @@ xtensa_expand_epilogue (bool sibcall_p)
+       for (regno = 0; regno < FIRST_PSEUDO_REGISTER; ++regno)
+ 	if (xtensa_call_save_reg(regno))
+ 	  {
+-	    if (! (cfun->machine->eliminated_callee_saved_bmp
+-		   & (1 << regno)))
++	    if (! TEST_HARD_REG_BIT (cfun->machine->eliminated_callee_saved,
++				     regno))
+ 	      {
+ 		rtx x = gen_rtx_PLUS (Pmode,
+ 				      stack_pointer_rtx, GEN_INT (offset));
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index feffb87be..fdb662a7d 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -3245,15 +3245,14 @@
+    (set (match_dup 3)
+ 	(match_dup 7))]
+ {
+-  uint32_t check = 0;
++  HARD_REG_SET regs;
+   int i;
++  CLEAR_HARD_REG_SET (regs);
+   for (i = 0; i <= 3; ++i)
+-    {
+-      uint32_t mask = (uint32_t)1 << REGNO (operands[i]);
+-      if (check & mask)
+-	FAIL;
+-      check |= mask;
+-    }
++    if (TEST_HARD_REG_BIT (regs, REGNO (operands[i])))
++      FAIL;
++    else
++      SET_HARD_REG_BIT (regs, REGNO (operands[i]));
+   operands[6] = gen_rtx_MEM (SFmode, XEXP (operands[6], 0));
+   operands[7] = gen_rtx_MEM (SFmode, XEXP (operands[7], 0));
+ })
+-- 
+2.30.2
+

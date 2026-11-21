@@ -1,0 +1,80 @@
+From 91b98d2bb5c2c6965d8df97c59fcb77b320296fd Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Sun, 14 Jul 2024 20:03:13 +0900
+Subject: [PATCH] xtensa: Make use of std::swap where appropriate
+
+No functional changes.
+
+gcc/ChangeLog:
+
+	* config/xtensa/xtensa.c
+	(gen_int_relational, gen_float_relational): Replace tempvar-based
+	value-swapping codes with std::swap.
+	* config/xtensa/xtensa.md (movdi_internal, movdf_internal):
+	Ditto.
+---
+ gcc/config/xtensa/xtensa.c  | 12 ++----------
+ gcc/config/xtensa/xtensa.md | 10 ++++------
+ 2 files changed, 6 insertions(+), 16 deletions(-)
+
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index 75769489e..795a26d41 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -783,11 +783,7 @@ gen_int_relational (enum rtx_code test_code, /* relational test (EQ, etc) */
+ 
+     }
+   else if (p_info->reverse_regs)
+-    {
+-      rtx temp = cmp0;
+-      cmp0 = cmp1;
+-      cmp1 = temp;
+-    }
++    std::swap (cmp0, cmp1);
+ 
+   return gen_rtx_fmt_ee (invert ? reverse_condition (p_info->test_code)
+ 				: p_info->test_code,
+@@ -831,11 +827,7 @@ gen_float_relational (enum rtx_code test_code, /* relational test (EQ, etc) */
+     }
+ 
+   if (reverse_regs)
+-    {
+-      rtx temp = cmp0;
+-      cmp0 = cmp1;
+-      cmp1 = temp;
+-    }
++    std::swap (cmp0, cmp1);
+ 
+   brtmp = gen_rtx_REG (CCmode, FPCC_REGNUM);
+   emit_insn (gen_fn (brtmp, cmp0, cmp1));
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index 26d52d8dd..7b6a36f6f 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -1214,9 +1214,8 @@
+   xtensa_split_operand_pair (operands, SImode);
+   if (reg_overlap_mentioned_p (operands[0], operands[3]))
+     {
+-      rtx tmp;
+-      tmp = operands[0], operands[0] = operands[1], operands[1] = tmp;
+-      tmp = operands[2], operands[2] = operands[3], operands[3] = tmp;
++      std::swap (operands[0], operands[1]);
++      std::swap (operands[2], operands[3]);
+     }
+ })
+ 
+@@ -1562,9 +1561,8 @@
+   xtensa_split_operand_pair (operands, SFmode);
+   if (reg_overlap_mentioned_p (operands[0], operands[3]))
+     {
+-      rtx tmp;
+-      tmp = operands[0], operands[0] = operands[1], operands[1] = tmp;
+-      tmp = operands[2], operands[2] = operands[3], operands[3] = tmp;
++      std::swap (operands[0], operands[1]);
++      std::swap (operands[2], operands[3]);
+     }
+ })
+ 
+-- 
+2.39.5
+

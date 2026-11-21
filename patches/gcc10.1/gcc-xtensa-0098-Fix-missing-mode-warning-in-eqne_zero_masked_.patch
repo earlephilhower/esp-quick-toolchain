@@ -1,0 +1,30 @@
+From 3eac2124c6b3b42a7c5975044725e358bee4faa5 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Sat, 3 Feb 2024 22:36:36 +0900
+Subject: [PATCH] xtensa: Fix missing mode warning in
+ "*eqne_zero_masked_bits"
+
+gcc/ChangeLog:
+
+	* config/xtensa/xtensa.md (*eqne_zero_masked_bits):
+	Add missing ":SI" to the match_operator.
+---
+ gcc/config/xtensa/xtensa.md | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index bcd1c8f90..e9440303e 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -3269,7 +3269,7 @@
+ 
+ (define_insn_and_split "*eqne_zero_masked_bits"
+   [(set (match_operand:SI 0 "register_operand" "=a")
+-	(match_operator 3 "boolean_operator"
++	(match_operator:SI 3 "boolean_operator"
+ 		[(and:SI (match_operand:SI 1 "register_operand" "r")
+ 			 (match_operand:SI 2 "const_int_operand" "i"))
+ 		 (const_int 0)]))]
+-- 
+2.39.5
+

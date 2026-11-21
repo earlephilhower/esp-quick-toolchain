@@ -1,0 +1,145 @@
+From fcf7d4b032f28ff6ffa3b8e6c6116970cf9b4726 Mon Sep 17 00:00:00 2001
+From: Max Filippov <jcmvbkbc@gmail.com>
+Date: Wed, 6 Sep 2023 20:13:22 -0700
+Subject: [PATCH] gcc: xtensa: use salt/saltu in xtensa_expand_scc
+
+gcc/
+	* config/xtensa/predicates.md (xtensa_cstoresi_operator): Add
+	unsigned comparisons.
+	* config/xtensa/xtensa.c (xtensa_expand_scc): Add code
+	generation of salt/saltu instructions.
+	* config/xtensa/xtensa.h (TARGET_SALT): New macro.
+	* config/xtensa/xtensa.md (salt, saltu): New instruction
+	patterns.
+---
+ gcc/config/xtensa/predicates.md |  2 +-
+ gcc/config/xtensa/xtensa.c      | 55 +++++++++++++++++++++++++++++++++
+ gcc/config/xtensa/xtensa.h      |  1 +
+ gcc/config/xtensa/xtensa.md     | 20 ++++++++++++
+ 4 files changed, 77 insertions(+), 1 deletion(-)
+
+diff --git a/gcc/config/xtensa/predicates.md b/gcc/config/xtensa/predicates.md
+index 4cca162bb..54ce304b1 100644
+--- a/gcc/config/xtensa/predicates.md
++++ b/gcc/config/xtensa/predicates.md
+@@ -195,7 +195,7 @@
+   (match_code "plus,minus"))
+ 
+ (define_predicate "xtensa_cstoresi_operator"
+-  (match_code "eq,ne,gt,ge,lt,le"))
++  (match_code "eq,ne,gt,ge,lt,le,gtu,geu,ltu,leu"))
+ 
+ (define_predicate "xtensa_shift_per_byte_operator"
+   (match_code "ashift,ashiftrt,lshiftrt"))
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index b96505761..8af2c66c7 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -984,6 +984,61 @@ xtensa_expand_scc (rtx operands[4], machine_mode cmp_mode)
+   rtx one_tmp, zero_tmp;
+   rtx (*gen_fn) (rtx, rtx, rtx, rtx, rtx);
+ 
++  if (cmp_mode == SImode && TARGET_SALT)
++    {
++      rtx a = operands[2], b = force_reg (SImode, operands[3]);
++      enum rtx_code code = GET_CODE (operands[1]);
++      bool invert_res = false;
++
++      switch (code)
++	{
++	case GE:
++	case GEU:
++	  invert_res = true;
++	  break;
++	case GT:
++	case GTU:
++	  std::swap (a, b);
++	  break;
++	case LE:
++	case LEU:
++	  invert_res = true;
++	  std::swap (a, b);
++	  break;
++	default:
++	  break;
++	}
++
++      switch (code)
++	{
++	case GE:
++	case GT:
++	case LE:
++	case LT:
++	  emit_insn (gen_salt (dest, a, b));
++	  if (!invert_res)
++	    return 1;
++	  break;
++	case GEU:
++	case GTU:
++	case LEU:
++	case LTU:
++	  emit_insn (gen_saltu (dest, a, b));
++	  if (!invert_res)
++	    return 1;
++	  break;
++	default:
++	  break;
++	}
++
++      if (invert_res)
++	{
++	  emit_insn (gen_negsi2 (dest, dest));
++	  emit_insn (gen_addsi3 (dest, dest, const1_rtx));
++	  return 1;
++	}
++    }
++
+   if (! (cmp = gen_conditional_move (GET_CODE (operands[1]), cmp_mode,
+ 				     operands[2], operands[3])))
+     return 0;
+diff --git a/gcc/config/xtensa/xtensa.h b/gcc/config/xtensa/xtensa.h
+index fb06b6141..779fd3bf4 100644
+--- a/gcc/config/xtensa/xtensa.h
++++ b/gcc/config/xtensa/xtensa.h
+@@ -68,6 +68,7 @@ along with GCC; see the file COPYING3.  If not see
+ #define TARGET_WINDOWED_ABI	(XSHAL_ABI == XTHAL_ABI_WINDOWED)
+ #define TARGET_DEBUG		XCHAL_HAVE_DEBUG
+ #define TARGET_L32R		XCHAL_HAVE_L32R
++#define TARGET_SALT		(XCHAL_HW_MIN_VERSION >= 260000)
+ 
+ #define TARGET_DEFAULT (MASK_SERIALIZE_VOLATILE)
+ 
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index e9e3362c5..bcd1c8f90 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -2398,6 +2398,26 @@
+   DONE;
+ })
+ 
++(define_insn "salt"
++  [(set (match_operand:SI 0 "register_operand" "=a")
++	(lt:SI (match_operand:SI 1 "register_operand" "r")
++	       (match_operand:SI 2 "register_operand" "r")))]
++  "TARGET_SALT"
++  "salt\t%0, %1, %2"
++  [(set_attr "type"	"arith")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"3")])
++
++(define_insn "saltu"
++  [(set (match_operand:SI 0 "register_operand" "=a")
++	(ltu:SI (match_operand:SI 1 "register_operand" "r")
++		(match_operand:SI 2 "register_operand" "r")))]
++  "TARGET_SALT"
++  "saltu\t%0, %1, %2"
++  [(set_attr "type"	"arith")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"3")])
++
+ (define_expand "cstoresf4"
+   [(match_operand:SI 0 "register_operand")
+    (match_operator:SI 1 "comparison_operator"
+-- 
+2.30.2
+

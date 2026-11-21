@@ -1,0 +1,161 @@
+From 8d4dc68b094adf58ec05632acb578ffd713050b9 Mon Sep 17 00:00:00 2001
+From: Takayuki 'January June' Suwa <jjsuwa_sys3175@yahoo.co.jp>
+Date: Tue, 5 Sep 2023 18:27:35 +0900
+Subject: [PATCH] xtensa: Optimize boolean evaluation when SImode EQ/NE to
+ zero if TARGET_MINMAX
+
+This patch optimizes the boolean evaluation for equality to 0 in SImode
+using the MINU (Minimum Value Unsigned) machine instruction available
+when TARGET_MINMAX is configured, for example, (x != 0) to MINU(x, 1)
+and (x == 0) to (MINU(x, 1) ^ 1).
+
+    /* example */
+    int test0(int x) {
+      return x == 0;
+    }
+    int test1(int x) {
+      return x != 0;
+    }
+
+    ;; before
+    test0:
+	mov.n	a10, a2
+	movi.n	a9, 1
+	movi.n	a2, 0
+	moveqz	a2, a9, a10
+	ret.n
+    test1:
+	mov.n	a10, a2
+	movi.n	a9, 1
+	movi.n	a2, 0
+	movnez	a2, a9, a10
+	ret.n
+
+    ;; after (prereq. TARGET_MINMAX)
+    test0:
+	movi.n	a9, 1
+	minu	a2, a2, a9
+	xor	a2, a2, a9
+	ret.n
+    test1:
+	movi.n	a9, 1
+	minu	a2, a2, a9
+	ret.n
+
+gcc/ChangeLog:
+
+	* config/xtensa/xtensa.c (xtensa_expand_scc):
+	Add code for particular constants (only 0 and INT_MIN for now)
+	for EQ/NE boolean evaluation in SImode.
+	* config/xtensa/xtensa.md (*eqne_INT_MIN): Remove because its
+	implementation has been integrated into the above.
+---
+ gcc/config/xtensa/xtensa.c  | 43 +++++++++++++++++++++++++++++++------
+ gcc/config/xtensa/xtensa.md | 34 -----------------------------
+ 2 files changed, 37 insertions(+), 40 deletions(-)
+
+diff --git a/gcc/config/xtensa/xtensa.c b/gcc/config/xtensa/xtensa.c
+index dcf685ff6..56adeaaa8 100644
+--- a/gcc/config/xtensa/xtensa.c
++++ b/gcc/config/xtensa/xtensa.c
+@@ -983,15 +983,46 @@ xtensa_expand_scc (rtx operands[4], machine_mode cmp_mode)
+   rtx cmp;
+   rtx one_tmp, zero_tmp;
+   rtx (*gen_fn) (rtx, rtx, rtx, rtx, rtx);
++  enum rtx_code code = GET_CODE (operands[1]);
+ 
+-  if (!(cmp = gen_conditional_move (GET_CODE (operands[1]), cmp_mode,
+-				    operands[2], operands[3])))
++  if (cmp_mode == SImode && CONST_INT_P (operands[3])
++      && (code == EQ || code == NE))
++    switch (INTVAL (operands[3]))
++      {
++      case 0:
++	if (TARGET_MINMAX)
++	  {
++	    one_tmp = force_reg (SImode, const1_rtx);
++	    emit_insn (gen_uminsi3 (dest, operands[2], one_tmp));
++	    if (code == EQ)
++	      emit_insn (gen_xorsi3 (dest, dest, one_tmp));
++	    return 1;
++	  }
++	break;
++      case -2147483648:
++	if (TARGET_ABS)
++	  {
++	    emit_insn (gen_abssi2 (dest, operands[2]));
++	    if (code == EQ)
++	      emit_insn (gen_lshrsi3 (dest, dest, GEN_INT (31)));
++	    else
++	      {
++		emit_insn (gen_ashrsi3 (dest, dest, GEN_INT (31)));
++		emit_insn (gen_addsi3 (dest, dest, const1_rtx));
++	      }
++	    return 1;
++	  }
++	break;
++      default:
++	break;
++      }
++
++  if (! (cmp = gen_conditional_move (code, cmp_mode,
++				     operands[2], operands[3])))
+     return 0;
+ 
+-  one_tmp = gen_reg_rtx (SImode);
+-  zero_tmp = gen_reg_rtx (SImode);
+-  emit_insn (gen_movsi (one_tmp, const_true_rtx));
+-  emit_insn (gen_movsi (zero_tmp, const0_rtx));
++  one_tmp = force_reg (SImode, const1_rtx);
++  zero_tmp = force_reg (SImode, const0_rtx);
+ 
+   gen_fn = (cmp_mode == SImode
+ 	    ? gen_movsicc_internal0
+diff --git a/gcc/config/xtensa/xtensa.md b/gcc/config/xtensa/xtensa.md
+index fdb662a7d..cd185bd1b 100644
+--- a/gcc/config/xtensa/xtensa.md
++++ b/gcc/config/xtensa/xtensa.md
+@@ -3193,40 +3193,6 @@
+ 		      (const_int 5)
+ 		      (const_int 6)))])
+ 
+-
+-(define_insn_and_split "*eqne_INT_MIN"
+-  [(set (match_operand:SI 0 "register_operand" "=a")
+-	(match_operator:SI 2 "boolean_operator"
+-		[(match_operand:SI 1 "register_operand" "r")
+-		 (const_int -2147483648)]))]
+-  "TARGET_ABS"
+-  "#"
+-  "&& 1"
+-  [(set (match_dup 0)
+-	(abs:SI (match_dup 1)))
+-   (set (match_dup 0)
+-	(match_op_dup:SI 2
+-		[(match_dup 0)
+-		 (const_int 31)]))
+-   (match_dup 3)]
+-{
+-  enum rtx_code code = GET_CODE (operands[2]);
+-  operands[2] = gen_rtx_fmt_ee ((code == EQ) ? LSHIFTRT : ASHIFTRT,
+-				SImode, XEXP (operands[2], 0),
+-				XEXP (operands[2], 1));
+-  operands[3] = (code != EQ) ? gen_addsi3 (operands[0],
+-					   operands[0], const1_rtx)
+-			     : const0_rtx;
+-}
+-  [(set_attr "type"	"move")
+-   (set_attr "mode"	"SI")
+-   (set (attr "length")
+-	(if_then_else (match_test "GET_CODE (operands[2]) == EQ")
+-		      (const_int 3)
+-		      (if_then_else (match_test "TARGET_DENSITY")
+-				    (const_int 5)
+-				    (const_int 6))))])
+-
+ (define_peephole2
+   [(set (match_operand:SI 0 "register_operand")
+ 	(match_operand:SI 6 "reload_operand"))
+-- 
+2.30.2
+
